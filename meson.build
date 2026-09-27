@@ -49,4 +49,5 @@ import('pkgconfig').generate(
 if not meson.is_subproject()
   subdir('tests')
   subdir('tools')
+  subdir('examples/nanochat')
 endif
