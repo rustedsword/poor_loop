@@ -53,6 +53,9 @@ static inline void chio_op_init(struct chio_op *op, chio_complete_fn *complete)
 /* Like chio_get_sqe(), but submit and wait if the SQ is full. */
 [[nodiscard]] struct io_uring_sqe *chio_get_sqe_or_submit(struct chio_loop *loop, struct chio_op *op);
 
+/* Like chio_get_sqe(), but with zero user_data, so the loop ignores the CQE. */
+[[nodiscard]] struct io_uring_sqe *chio_get_untracked_sqe(struct chio_loop *loop);
+
 /* Check that the SQ has space for 'n' SQEs, otherwise submit and wait. */
 [[nodiscard]] int chio_check_sq_space_or_submit(struct chio_loop *loop, unsigned n);
 

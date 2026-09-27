@@ -78,22 +78,10 @@ static void reserve(struct chio_loop *loop, unsigned n)
 	}
 }
 
-/*
- * The loop ignores CQEs with null user_data. Neither io_uring_get_sqe() nor the
- * prep helpers reset it, so it must be set explicitly. Reserve SQ space first.
- */
-static struct io_uring_sqe *get_untracked_sqe(struct chio_loop *loop)
-{
-	struct io_uring_sqe *sqe = io_uring_get_sqe(chio_loop_ring(loop));
-
-	io_uring_sqe_set_data(sqe, nullptr);
-	return sqe;
-}
-
 static void fd_close(struct chio_loop *loop, int fd)
 {
 	reserve(loop, 1);
-	io_uring_prep_close(get_untracked_sqe(loop), fd);
+	io_uring_prep_close(chio_get_untracked_sqe(loop), fd);
 }
 
 static bool check(struct chio_loop *loop, const struct io_uring_cqe *cqe,
@@ -129,10 +117,10 @@ static void client_drop(struct chio_loop *loop, struct client *c)
 		return;
 	chio_list_remove(&c->link);
 	reserve(loop, 2);
-	sqe = get_untracked_sqe(loop);
+	sqe = chio_get_untracked_sqe(loop);
 	io_uring_prep_shutdown(sqe, c->fd, SHUT_RDWR);
 	sqe->flags |= IOSQE_IO_HARDLINK;
-	io_uring_prep_close(get_untracked_sqe(loop), c->fd);
+	io_uring_prep_close(chio_get_untracked_sqe(loop), c->fd);
 }
 
 static void on_drained(struct chio_loop *loop, struct chio_op *,
@@ -420,9 +408,9 @@ static void on_signal(struct chio_loop *loop, struct chio_op *,
 	chio_timer_disarm(&accept_timer);
 	reserve(loop, 3);
 	if (accept_op.pending)
-		io_uring_prep_cancel(get_untracked_sqe(loop), &accept_op, 0);
-	io_uring_prep_close_direct(get_untracked_sqe(loop), LISTEN_SLOT);
-	io_uring_prep_close(get_untracked_sqe(loop), signal_fd);
+		io_uring_prep_cancel(chio_get_untracked_sqe(loop), &accept_op, 0);
+	io_uring_prep_close_direct(chio_get_untracked_sqe(loop), LISTEN_SLOT);
+	io_uring_prep_close(chio_get_untracked_sqe(loop), signal_fd);
 	chio_list_for_each_safe(c, tmp, &clients, link)
 		client_drop(loop, c);
 	shutdown_finish(loop);

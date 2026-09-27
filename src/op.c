@@ -42,6 +42,18 @@ struct io_uring_sqe *chio_get_sqe(struct chio_loop *loop, struct chio_op *op)
 	return sqe;
 }
 
+struct io_uring_sqe *chio_get_untracked_sqe(struct chio_loop *loop)
+{
+	struct io_uring_sqe *sqe = io_uring_get_sqe(&loop->ring);
+
+	if (uring_unlikely(!sqe)) {
+		errno = EAGAIN;
+		return nullptr;
+	}
+	io_uring_sqe_set_data(sqe, nullptr);
+	return sqe;
+}
+
 struct io_uring_sqe *chio_get_sqe_or_submit(struct chio_loop *loop,
 					    struct chio_op *op)
 {

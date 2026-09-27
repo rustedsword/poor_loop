@@ -216,17 +216,27 @@ static int test_untracked(void)
 {
 	struct io_uring_sqe *sqe;
 	struct chio_loop loop;
-	struct rec rec;
+	struct rec recs[5];
+	size_t i;
 
-	loop_init(&loop, 8);
-	sqe = io_uring_get_sqe(chio_loop_ring(&loop));
+	loop_init(&loop, 4);
+	for (i = 0; i < ARRAY_SIZE(recs); i++)
+		rec_init(&recs[i], rec_complete);
+	for (i = 0; i < 4; i++)
+		arm_nop(&loop, &recs[i].op);
+	errno = 0;
+	CHECK(!chio_get_untracked_sqe(&loop));
+	CHECK_EQ(errno, EAGAIN);
+	for (i = 0; i < 4; i++)
+		drain(&loop, &recs[i].op);
+	sqe = chio_get_untracked_sqe(&loop);
 	CHECK(sqe);
+	CHECK_EQ(sqe->user_data, 0);
 	io_uring_prep_nop(sqe);
-	io_uring_sqe_set_data(sqe, nullptr);
-	rec_init(&rec, rec_complete);
-	arm_nop(&loop, &rec.op);
-	drain(&loop, &rec.op);
-	CHECK_EQ(rec.calls, 1);
+	arm_nop(&loop, &recs[4].op);
+	drain(&loop, &recs[4].op);
+	for (i = 0; i < ARRAY_SIZE(recs); i++)
+		CHECK_EQ(recs[i].calls, 1);
 	CHECK_EQ(io_uring_cq_ready(chio_loop_ring(&loop)), 0);
 	chio_loop_exit(&loop);
 	return 0;
