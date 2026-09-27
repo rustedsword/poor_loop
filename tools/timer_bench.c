@@ -23,14 +23,14 @@ static int cmp_i64(const void *a, const void *b)
 	return x < y ? -1 : x > y;
 }
 
-static struct stats summarize(int64_t *values, unsigned count)
+static struct stats summarize(unsigned count, int64_t (*values)[count])
 {
-	qsort(values, count, sizeof(*values), cmp_i64);
+	qsort(*values, count, sizeof(**values), cmp_i64);
 	return (struct stats){
-		.min = values[0],
-		.p50 = values[count / 2],
-		.p99 = values[count * 99 / 100],
-		.max = values[count - 1],
+		.min = (*values)[0],
+		.p50 = (*values)[count / 2],
+		.p99 = (*values)[count * 99 / 100],
+		.max = (*values)[count - 1],
 	};
 }
 
@@ -106,7 +106,7 @@ static void probe_fire(struct chio_loop *loop, struct chio_timer *timer)
 }
 
 static void bench_loop_timer(struct chio_loop *loop, uint64_t delay,
-			     int64_t *errors, unsigned count)
+			     unsigned count, int64_t (*errors)[count])
 {
 	for (unsigned i = 0; i < count; i++) {
 		struct probe probe = { .timer = CHIO_TIMER_INIT(probe_fire) };
@@ -114,12 +114,12 @@ static void bench_loop_timer(struct chio_loop *loop, uint64_t delay,
 
 		chio_timer_arm(loop, &probe.timer, deadline);
 		run(loop);
-		errors[i] = (int64_t)(probe.fired - deadline);
+		(*errors)[i] = (int64_t)(probe.fired - deadline);
 	}
 }
 
 static void bench_uring_abs(struct io_uring *ring, uint64_t delay,
-			    int64_t *errors, unsigned count)
+			    unsigned count, int64_t (*errors)[count])
 {
 	struct io_uring_cqe *cqe;
 
@@ -133,13 +133,14 @@ static void bench_uring_abs(struct io_uring *ring, uint64_t delay,
 		io_uring_prep_timeout(io_uring_get_sqe(ring), &ts, 0,
 				      IORING_TIMEOUT_ABS);
 		io_uring_submit_and_wait(ring, 1);
-		errors[i] = (int64_t)(chio_now() - deadline);
+		(*errors)[i] = (int64_t)(chio_now() - deadline);
 		if (!io_uring_peek_cqe(ring, &cqe))
 			io_uring_cqe_seen(ring, cqe);
 	}
 }
 
-static void bench_nanosleep(uint64_t delay, int64_t *errors, unsigned count)
+static void bench_nanosleep(uint64_t delay, unsigned count,
+			    int64_t (*errors)[count])
 {
 	for (unsigned i = 0; i < count; i++) {
 		uint64_t deadline = chio_now() + delay;
@@ -149,25 +150,25 @@ static void bench_nanosleep(uint64_t delay, int64_t *errors, unsigned count)
 		};
 
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr);
-		errors[i] = (int64_t)(chio_now() - deadline);
+		(*errors)[i] = (int64_t)(chio_now() - deadline);
 	}
 }
 
 static void bench_latency(struct chio_loop *loop, uint64_t delay,
 			  unsigned samples)
 {
-	int64_t *errors = calloc(samples, sizeof(*errors));
+	int64_t (*errors)[samples] = calloc(1, sizeof(*errors));
 	struct io_uring ring;
 
 	io_uring_queue_init(64, &ring, 0);
 	printf("firing error at a %" PRIu64 "us deadline, n=%u:\n",
 	       delay / NS_PER_US, samples);
-	bench_loop_timer(loop, delay, errors, samples);
-	print_stats("chio_timer (wait timeout)", summarize(errors, samples));
-	bench_uring_abs(&ring, delay, errors, samples);
-	print_stats("IORING_TIMEOUT_ABS", summarize(errors, samples));
-	bench_nanosleep(delay, errors, samples);
-	print_stats("clock_nanosleep ABS", summarize(errors, samples));
+	bench_loop_timer(loop, delay, samples, errors);
+	print_stats("chio_timer (wait timeout)", summarize(samples, errors));
+	bench_uring_abs(&ring, delay, samples, errors);
+	print_stats("IORING_TIMEOUT_ABS", summarize(samples, errors));
+	bench_nanosleep(delay, samples, errors);
+	print_stats("clock_nanosleep ABS", summarize(samples, errors));
 	io_uring_queue_exit(&ring);
 	free(errors);
 }

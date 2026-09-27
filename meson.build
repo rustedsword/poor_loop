@@ -13,7 +13,9 @@ inc = include_directories('include')
 
 chioloop = library(
   'chioloop',
-  'src/chioloop.c',
+  'src/loop.c',
+  'src/op.c',
+  'src/timer.c',
   include_directories: inc,
   dependencies: liburing,
   version: meson.project_version(),
@@ -28,7 +30,13 @@ chioloop_dep = declare_dependency(
 )
 meson.override_dependency('chioloop', chioloop_dep)
 
-install_headers('include/chioloop.h', 'include/chio_list.h')
+install_headers(
+  'include/chioloop.h',
+  'include/chio_list.h',
+  'include/chio_loop.h',
+  'include/chio_op.h',
+  'include/chio_timer.h',
+)
 
 import('pkgconfig').generate(
   chioloop,
