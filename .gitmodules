@@ -4,3 +4,9 @@
 [submodule "refs/iouringinfo"]
 	path = refs/iouringinfo
 	url = https://gitlab.freedesktop.org/lightofmysoul/iouringinfo.git
+[submodule "refs/FastRing"]
+	path = refs/FastRing
+	url = https://github.com/cyanide-burnout/FastRing
+[submodule "refs/libreactorng"]
+	path = refs/libreactorng
+	url = https://github.com/fredrikwidlund/libreactorng.git
