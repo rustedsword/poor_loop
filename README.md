@@ -14,6 +14,8 @@ meson compile -C build
 ## Example
 
 ```c
+#define _GNU_SOURCE
+
 #include <chioloop.h>
 #include <stdio.h>
 
@@ -27,7 +29,7 @@ static void on_read(struct chio_loop *loop, struct chio_op *op,
 		return;
 	}
 	fwrite(buf, 1, cqe->res, stdout);
-	io_uring_prep_read(chio_get_sqe(loop, op), 0, buf, sizeof(buf), -1);
+	io_uring_prep_read(chio_get_sqe_or_submit(loop, op), 0, buf, sizeof(buf), -1);
 }
 
 int main(void)
@@ -39,7 +41,7 @@ int main(void)
 
 	if (chio_loop_init(&loop, 64, &params))
 		return 1;
-	io_uring_prep_read(chio_get_sqe(&loop, &op), 0, buf, sizeof(buf), -1);
+	io_uring_prep_read(chio_get_sqe_or_submit(&loop, &op), 0, buf, sizeof(buf), -1);
 	ret = chio_loop_run(&loop);
 	chio_loop_exit(&loop);
 	return ret != 0;
