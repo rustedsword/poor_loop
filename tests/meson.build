@@ -6,13 +6,13 @@ harness = static_library(
   dependencies: chioloop_dep,
 )
 
-foreach component : ['loop', 'op', 'timer']
+foreach component : ['log', 'loop', 'op', 'timer']
   source = 'test_' + component + '.c'
   exe = executable(
     'test_' + component,
     source,
     link_with: harness,
-    dependencies: [chioloop_dep, dependency('dl')],
+    dependencies: [chioloop_dep, dependency('dl'), dependency('threads')],
   )
 
   names = []

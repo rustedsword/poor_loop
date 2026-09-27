@@ -43,18 +43,18 @@ static inline void chio_op_init(struct chio_op *op, chio_complete_fn *complete)
  *
  * Prepare the SQE with any liburing helper, but do not overwrite
  * sqe->user_data and do not set IOSQE_CQE_SKIP_SUCCESS (otherwise the op will
- * never complete). If the SQ is full, queued SQEs are submitted first to make
- * room.
+ * never complete).
  *
- * Returns the SQE on success, or nullptr on failure with errno set (e.g. EBUSY
- * if 'op' is already pending).
+ * Returns the SQE on success, or nullptr on failure with errno set: EBUSY if
+ * 'op' is already pending, EAGAIN if the SQ is full.
  */
-[[nodiscard]] struct io_uring_sqe *chio_get_sqe(struct chio_loop *loop,
-						struct chio_op *op);
+[[nodiscard]] struct io_uring_sqe *chio_get_sqe(struct chio_loop *loop, struct chio_op *op);
+
+/* Like chio_get_sqe(), but submit and wait if the SQ is full. */
+[[nodiscard]] struct io_uring_sqe *chio_get_sqe_or_submit(struct chio_loop *loop, struct chio_op *op);
 
 /* Check that the SQ has space for 'n' SQEs, otherwise submit and wait. */
-[[nodiscard]] int chio_check_sq_space_or_submit(struct chio_loop *loop,
-						unsigned n);
+[[nodiscard]] int chio_check_sq_space_or_submit(struct chio_loop *loop, unsigned n);
 
 #ifdef __cplusplus
 }

@@ -13,6 +13,7 @@ inc = include_directories('include')
 
 chioloop = library(
   'chioloop',
+  'src/log.c',
   'src/loop.c',
   'src/op.c',
   'src/timer.c',
@@ -33,6 +34,7 @@ meson.override_dependency('chioloop', chioloop_dep)
 install_headers(
   'include/chioloop.h',
   'include/chio_list.h',
+  'include/chio_log.h',
   'include/chio_loop.h',
   'include/chio_op.h',
   'include/chio_timer.h',

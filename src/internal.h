@@ -4,6 +4,8 @@
 
 #include "chioloop.h"
 
+[[gnu::visibility("hidden"), gnu::format(printf, 2, 3)]] void
+chio_log(struct chio_loop *loop, const char *fmt, ...);
 [[gnu::visibility("hidden")]] void chio_ops_dispatch(struct chio_loop *loop);
 [[gnu::visibility("hidden")]] bool
 chio_timers_timeout(struct chio_loop *loop, struct __kernel_timespec *ts);

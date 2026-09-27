@@ -66,7 +66,7 @@ void close_pipe(int (*fds)[2])
 
 struct io_uring_sqe *get_sqe(struct chio_loop *loop, struct chio_op *op)
 {
-	struct io_uring_sqe *sqe = chio_get_sqe(loop, op);
+	struct io_uring_sqe *sqe = chio_get_sqe_or_submit(loop, op);
 
 	CHECK_EQ(sqe ? 0 : errno, 0);
 	CHECK(op->pending);

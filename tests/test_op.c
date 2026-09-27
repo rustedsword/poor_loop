@@ -130,6 +130,36 @@ static int test_sq_space(void)
 	return 0;
 }
 
+static int test_get_sqe_full(void)
+{
+	struct chio_loop loop;
+	struct rec recs[5];
+	size_t i;
+
+	loop_init(&loop, 4);
+	for (i = 0; i < ARRAY_SIZE(recs); i++)
+		rec_init(&recs[i], rec_complete);
+	for (i = 0; i < 4; i++)
+		arm_nop(&loop, &recs[i].op);
+	errno = 0;
+	CHECK(!chio_get_sqe(&loop, &recs[4].op));
+	CHECK_EQ(errno, EAGAIN);
+	CHECK(!recs[4].op.pending);
+	errno = 0;
+	CHECK(!chio_get_sqe_or_submit(&loop, &recs[0].op));
+	CHECK_EQ(errno, EBUSY);
+	CHECK_EQ(io_uring_sq_ready(chio_loop_ring(&loop)), 4);
+	arm_nop(&loop, &recs[4].op);
+	for (i = 0; i < ARRAY_SIZE(recs); i++)
+		drain(&loop, &recs[i].op);
+	for (i = 0; i < ARRAY_SIZE(recs); i++) {
+		CHECK_EQ(recs[i].calls, 1);
+		CHECK_EQ(recs[i].res, 0);
+	}
+	chio_loop_exit(&loop);
+	return 0;
+}
+
 static int test_submit_error(void)
 {
 	struct io_uring_params p;
@@ -146,7 +176,7 @@ static int test_submit_error(void)
 	arm_nop(&loop, &recs[1].op);
 	CHECK_EQ(chio_check_sq_space_or_submit(&loop, 1), -EBADFD);
 	errno = 0;
-	CHECK(!chio_get_sqe(&loop, &recs[2].op));
+	CHECK(!chio_get_sqe_or_submit(&loop, &recs[2].op));
 	CHECK_EQ(errno, EBADFD);
 	CHECK(!recs[2].op.pending);
 	enable_ring(&loop);
@@ -168,6 +198,9 @@ static int test_double_arm(void)
 	arm_nop(&loop, &rec.op);
 	errno = 0;
 	CHECK(!chio_get_sqe(&loop, &rec.op));
+	CHECK_EQ(errno, EBUSY);
+	errno = 0;
+	CHECK(!chio_get_sqe_or_submit(&loop, &rec.op));
 	CHECK_EQ(errno, EBUSY);
 	CHECK(rec.op.pending);
 	drain(&loop, &rec.op);
@@ -543,6 +576,7 @@ const struct test tests[] = {
 	TEST(resubmit),
 	TEST(sq_full),
 	TEST(sq_space),
+	TEST(get_sqe_full),
 	TEST(submit_error),
 	TEST(double_arm),
 	TEST(untracked),
