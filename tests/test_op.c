@@ -109,6 +109,27 @@ static int test_sq_full(void)
 	return 0;
 }
 
+static int test_sq_space(void)
+{
+	struct chio_loop loop;
+	struct io_uring *ring;
+	struct rec rec;
+
+	loop_init(&loop, 4);
+	ring = chio_loop_ring(&loop);
+	rec_init(&rec, rec_complete);
+	arm_nop(&loop, &rec.op);
+	CHECK_EQ(chio_check_sq_space_or_submit(&loop, 3), 0);
+	CHECK_EQ(io_uring_sq_ready(ring), 1);
+	CHECK_EQ(chio_check_sq_space_or_submit(&loop, 4), 0);
+	CHECK_EQ(io_uring_sq_space_left(ring), 4);
+	drain(&loop, &rec.op);
+	CHECK_EQ(rec.calls, 1);
+	CHECK_EQ(rec.res, 0);
+	chio_loop_exit(&loop);
+	return 0;
+}
+
 static int test_submit_error(void)
 {
 	struct io_uring_params p;
@@ -123,6 +144,7 @@ static int test_submit_error(void)
 		rec_init(&recs[i], rec_complete);
 	arm_nop(&loop, &recs[0].op);
 	arm_nop(&loop, &recs[1].op);
+	CHECK_EQ(chio_check_sq_space_or_submit(&loop, 1), -EBADFD);
 	errno = 0;
 	CHECK(!chio_get_sqe(&loop, &recs[2].op));
 	CHECK_EQ(errno, EBADFD);
@@ -243,6 +265,40 @@ static int test_linked_timeout(void)
 	CHECK_EQ(timer.res, -ETIME);
 	chio_loop_exit(&loop);
 	close_pipe(&fds);
+	return 0;
+}
+
+static int test_linked_sq_full(void)
+{
+	struct io_uring_sqe *sqe;
+	struct chio_loop loop;
+	struct rec recs[6];
+	char buf[8];
+	size_t i;
+
+	loop_init(&loop, 4);
+	for (i = 0; i < ARRAY_SIZE(recs); i++)
+		rec_init(&recs[i], rec_complete);
+	for (i = 0; i < 3; i++)
+		arm_nop(&loop, &recs[i].op);
+	CHECK_EQ(chio_check_sq_space_or_submit(&loop, 3), 0);
+	sqe = get_sqe(&loop, &recs[3].op);
+	io_uring_prep_read(sqe, -1, buf, sizeof(buf), 0);
+	sqe->flags |= IOSQE_IO_LINK;
+	sqe = get_sqe(&loop, &recs[4].op);
+	io_uring_prep_nop(sqe);
+	sqe->flags |= IOSQE_IO_LINK;
+	arm_nop(&loop, &recs[5].op);
+	for (i = 0; i < ARRAY_SIZE(recs); i++)
+		drain(&loop, &recs[i].op);
+	for (i = 0; i < 3; i++)
+		CHECK_EQ(recs[i].res, 0);
+	CHECK_EQ(recs[3].res, -EBADF);
+	CHECK_EQ(recs[4].res, -ECANCELED);
+	CHECK_EQ(recs[5].res, -ECANCELED);
+	for (i = 0; i < ARRAY_SIZE(recs); i++)
+		CHECK_EQ(recs[i].calls, 1);
+	chio_loop_exit(&loop);
 	return 0;
 }
 
@@ -486,12 +542,14 @@ const struct test tests[] = {
 	TEST(nop),
 	TEST(resubmit),
 	TEST(sq_full),
+	TEST(sq_space),
 	TEST(submit_error),
 	TEST(double_arm),
 	TEST(untracked),
 	TEST(op_error),
 	TEST(pipe_io),
 	TEST(linked_timeout),
+	TEST(linked_sq_full),
 	TEST(multishot),
 	TEST(multishot_cancel),
 	TEST(cancel),

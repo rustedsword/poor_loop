@@ -5,6 +5,20 @@
 
 #include "internal.h"
 
+int chio_check_sq_space_or_submit(struct chio_loop *loop, unsigned n)
+{
+	int ret;
+
+	while (io_uring_sq_space_left(&loop->ring) < n) {
+		ret = io_uring_submit(&loop->ring);
+		if (ret >= 0)
+			ret = io_uring_sqring_wait(&loop->ring);
+		if (ret < 0)
+			return ret;
+	}
+	return 0;
+}
+
 struct io_uring_sqe *chio_get_sqe(struct chio_loop *loop, struct chio_op *op)
 {
 	struct io_uring_sqe *sqe;
@@ -14,15 +28,12 @@ struct io_uring_sqe *chio_get_sqe(struct chio_loop *loop, struct chio_op *op)
 		errno = EBUSY;
 		return nullptr;
 	}
-	while (!(sqe = io_uring_get_sqe(&loop->ring))) {
-		ret = io_uring_submit(&loop->ring);
-		if (ret >= 0)
-			ret = io_uring_sqring_wait(&loop->ring);
-		if (ret < 0) {
-			errno = -ret;
-			return nullptr;
-		}
+	ret = chio_check_sq_space_or_submit(loop, 1);
+	if (ret) {
+		errno = -ret;
+		return nullptr;
 	}
+	sqe = io_uring_get_sqe(&loop->ring);
 	io_uring_sqe_set_data(sqe, op);
 	op->pending = true;
 	return sqe;
