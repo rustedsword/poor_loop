@@ -64,10 +64,12 @@ int main(void)
 - An op has at most one request in flight: `chio_get_sqe()` on a pending op
   fails with `EBUSY`. When the SQ is full it submits queued SQEs first, so
   reserve space with `io_uring_sq_space_left()` before building a linked
-  chain. On failure it returns `nullptr` and sets `errno`.
+  chain. On failure it returns `nullptr` and sets `errno`; `EAGAIN` and
+  `ENOMEM` are transient.
 - `chio_loop_run_once(loop, wait)` submits, waits for a CQE if `wait` is set,
   then dispatches the CQEs that were ready. It returns the number of CQEs
-  reaped or `-errno`; `EINTR` is not an error.
+  reaped or `-errno`. `EINTR` is not an error, and neither is a submission
+  that ran out of memory (`EAGAIN`, `ENOMEM`): the SQEs stay queued.
 - `chio_loop_run()` runs until `chio_loop_stop()` is called. A stop requested
   outside of `chio_loop_run()` ends the next run.
 - Callbacks must not call `chio_loop_run*()` or `chio_loop_exit()`.

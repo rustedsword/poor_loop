@@ -1,4 +1,8 @@
-test_loop = executable('test_loop', 'test_loop.c', dependencies: chioloop_dep)
+test_loop = executable(
+  'test_loop',
+  'test_loop.c',
+  dependencies: [chioloop_dep, dependency('dl')],
+)
 
 names = []
 foreach line : import('fs').read('test_loop.c').split('\n')

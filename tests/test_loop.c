@@ -3,8 +3,10 @@
 
 #include <chioloop.h>
 #include <dirent.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <stddef.h>
@@ -426,6 +428,26 @@ static int test_submit_error(void)
 	return 0;
 }
 
+static int submit_failures;
+static int submit_error;
+
+int io_uring_submit_and_wait(struct io_uring *ring, unsigned wait_nr)
+{
+	static int (*real)(struct io_uring *, unsigned);
+	void *sym;
+
+	if (submit_failures > 0) {
+		submit_failures--;
+		return submit_error;
+	}
+	if (!real) {
+		sym = dlsym(RTLD_NEXT, "io_uring_submit_and_wait");
+		CHECK(sym);
+		memcpy(&real, &sym, sizeof(real));
+	}
+	return real(ring, wait_nr);
+}
+
 static int test_run_error(void)
 {
 	struct io_uring_params p;
@@ -445,6 +467,41 @@ static int test_run_error(void)
 	drain(&loop, &rec.op);
 	CHECK_EQ(rec.calls, 1);
 	chio_loop_exit(&loop);
+	return 0;
+}
+
+static int test_submit_retry(void)
+{
+	static const int errors[] = { -EAGAIN, -ENOMEM };
+	struct rec reader, nop;
+	struct chio_loop loop;
+	char buf[8];
+	int fds[2];
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZE(errors); i++) {
+		make_pipe(fds);
+		loop_init(&loop, 8);
+		rec_init(&reader, rec_complete);
+		rec_init(&nop, stop_complete);
+		arm_read(&loop, &reader.op, fds[0], buf, sizeof(buf));
+		CHECK_EQ(chio_loop_run_once(&loop, false), 0);
+		CHECK_EQ(write(fds[1], "x", 1), 1);
+		arm_nop(&loop, &nop.op);
+
+		submit_error = errors[i];
+		submit_failures = INT_MAX;
+		drain(&loop, &reader.op);
+		CHECK_EQ(reader.res, 1);
+		CHECK_EQ(nop.calls, 0);
+
+		submit_failures = 3;
+		CHECK_EQ(chio_loop_run(&loop), 0);
+		CHECK_EQ(submit_failures, 0);
+		CHECK_EQ(nop.calls, 1);
+		chio_loop_exit(&loop);
+		close_pipe(fds);
+	}
 	return 0;
 }
 
@@ -811,6 +868,7 @@ static const struct test tests[] = {
 	TEST(sq_full),
 	TEST(submit_error),
 	TEST(run_error),
+	TEST(submit_retry),
 	TEST(double_arm),
 	TEST(untracked),
 	TEST(op_error),

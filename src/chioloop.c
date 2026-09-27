@@ -68,6 +68,8 @@ int chio_loop_run_once(struct chio_loop *loop, bool wait)
 		ret = io_uring_submit_and_wait(&loop->ring, 1);
 	else
 		ret = io_uring_submit_and_get_events(&loop->ring);
+	if (ret == -EAGAIN || ret == -ENOMEM)
+		ret = io_uring_get_events(&loop->ring);
 	count = dispatch(loop);
 	if (ret < 0 && ret != -EINTR && ret != -EBUSY)
 		return ret;
