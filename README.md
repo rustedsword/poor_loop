@@ -72,6 +72,9 @@ int main(void)
   that ran out of memory (`EAGAIN`, `ENOMEM`): the SQEs stay queued.
 - `chio_loop_run()` runs until `chio_loop_stop()` is called. A stop requested
   outside of `chio_loop_run()` ends the next run.
+- To cancel, target the op itself:
+  `io_uring_prep_cancel(chio_get_sqe(loop, &cancel), &op, 0)`. The op stays
+  pending until its own final CQE, usually `-ECANCELED`.
 - Callbacks must not call `chio_loop_run*()` or `chio_loop_exit()`.
 - CQEs with zero `user_data` are ignored, which leaves room for raw liburing
   SQEs. Don't set `IOSQE_CQE_SKIP_SUCCESS` on SQEs that belong to an op.

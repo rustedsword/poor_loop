@@ -693,6 +693,127 @@ static int test_multishot_cancel(void)
 	return 0;
 }
 
+static void cancel_read(bool submitted)
+{
+	struct rec reader, cancel;
+	struct chio_loop loop;
+	char buf[8];
+	int fds[2];
+
+	make_pipe(fds);
+	loop_init(&loop, 8);
+	rec_init(&reader, rec_complete);
+	rec_init(&cancel, rec_complete);
+	arm_read(&loop, &reader.op, fds[0], buf, sizeof(buf));
+	if (submitted)
+		CHECK_EQ(chio_loop_run_once(&loop, false), 0);
+	io_uring_prep_cancel(get_sqe(&loop, &cancel.op), &reader.op, 0);
+	drain(&loop, &reader.op);
+	drain(&loop, &cancel.op);
+	CHECK_EQ(reader.calls, 1);
+	CHECK_EQ(reader.res, -ECANCELED);
+	CHECK_EQ(cancel.calls, 1);
+	CHECK_EQ(cancel.res, 0);
+	chio_loop_exit(&loop);
+	close_pipe(fds);
+}
+
+static int test_cancel(void)
+{
+	cancel_read(false);
+	cancel_read(true);
+	return 0;
+}
+
+static int test_cancel_done(void)
+{
+	struct rec nop, cancel;
+	struct chio_loop loop;
+
+	loop_init(&loop, 8);
+	rec_init(&nop, rec_complete);
+	rec_init(&cancel, rec_complete);
+	arm_nop(&loop, &nop.op);
+	drain(&loop, &nop.op);
+	io_uring_prep_cancel(get_sqe(&loop, &cancel.op), &nop.op, 0);
+	drain(&loop, &cancel.op);
+	CHECK_EQ(nop.calls, 1);
+	CHECK_EQ(nop.res, 0);
+	CHECK_EQ(cancel.calls, 1);
+	CHECK_EQ(cancel.res, -ENOENT);
+	chio_loop_exit(&loop);
+	return 0;
+}
+
+static int test_cancel_fd(void)
+{
+	struct rec readers[2], cancel;
+	struct chio_loop loop;
+	char buf[2][8];
+	int fds[2], ret = 0;
+	size_t i;
+
+	make_pipe(fds);
+	loop_init(&loop, 8);
+	for (i = 0; i < ARRAY_SIZE(readers); i++) {
+		rec_init(&readers[i], rec_complete);
+		arm_read(&loop, &readers[i].op, fds[0], buf[i], sizeof(buf[i]));
+	}
+	rec_init(&cancel, rec_complete);
+	io_uring_prep_cancel_fd(get_sqe(&loop, &cancel.op), fds[0],
+				IORING_ASYNC_CANCEL_ALL);
+	drain(&loop, &cancel.op);
+	if (cancel.res == -EINVAL) {
+		ret = SKIP;
+	} else {
+		CHECK_EQ(cancel.res, ARRAY_SIZE(readers));
+		for (i = 0; i < ARRAY_SIZE(readers); i++) {
+			drain(&loop, &readers[i].op);
+			CHECK_EQ(readers[i].calls, 1);
+			CHECK_EQ(readers[i].res, -ECANCELED);
+		}
+	}
+	chio_loop_exit(&loop);
+	close_pipe(fds);
+	return ret;
+}
+
+static int test_cancel_any(void)
+{
+	struct __kernel_timespec ts = { .tv_sec = 10 };
+	struct rec ops[3], cancel;
+	struct chio_loop loop;
+	int fds[2], ret = 0;
+	char buf[8];
+	size_t i;
+
+	make_pipe(fds);
+	loop_init(&loop, 8);
+	for (i = 0; i < ARRAY_SIZE(ops); i++)
+		rec_init(&ops[i], rec_complete);
+	rec_init(&cancel, rec_complete);
+	arm_read(&loop, &ops[0].op, fds[0], buf, sizeof(buf));
+	io_uring_prep_poll_add(get_sqe(&loop, &ops[1].op), fds[0], POLLIN);
+	io_uring_prep_timeout(get_sqe(&loop, &ops[2].op), &ts, 0, 0);
+	CHECK_EQ(chio_loop_run_once(&loop, false), 0);
+	io_uring_prep_cancel(get_sqe(&loop, &cancel.op), nullptr,
+			     IORING_ASYNC_CANCEL_ANY);
+	drain(&loop, &cancel.op);
+	if (cancel.res == -EINVAL) {
+		ret = SKIP;
+	} else {
+		CHECK_EQ(cancel.res, ARRAY_SIZE(ops));
+		for (i = 0; i < ARRAY_SIZE(ops); i++) {
+			drain(&loop, &ops[i].op);
+			CHECK_EQ(ops[i].calls, 1);
+			CHECK_EQ(ops[i].res, -ECANCELED);
+		}
+	}
+	chio_loop_exit(&loop);
+	close_pipe(fds);
+	return ret;
+}
+
 struct heap_op {
 	struct chio_op op;
 	int *freed;
@@ -876,6 +997,10 @@ static const struct test tests[] = {
 	TEST(linked_timeout),
 	TEST(multishot),
 	TEST(multishot_cancel),
+	TEST(cancel),
+	TEST(cancel_done),
+	TEST(cancel_fd),
+	TEST(cancel_any),
 	TEST(free_in_callback),
 	TEST(stop),
 	TEST(eintr),
