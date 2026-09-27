@@ -1,0 +1,6 @@
+[submodule "refs/liburing"]
+	path = refs/liburing
+	url = https://github.com/axboe/liburing.git
+[submodule "refs/iouringinfo"]
+	path = refs/iouringinfo
+	url = https://gitlab.freedesktop.org/lightofmysoul/iouringinfo.git
