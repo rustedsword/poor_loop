@@ -38,9 +38,11 @@ static inline struct io_uring *chio_loop_ring(struct chio_loop *loop)
 /*
  * Tear down the event loop and close the io_uring ring.
  *
- * All timers must be disarmed before calling this. complete() is never called
- * for pending ops; the kernel cancels their requests asynchronously after the
- * ring is closed.
+ * Disarm all timers and make sure no op is pending first: cancel requests that
+ * won't finish on their own and run the loop until they complete. The kernel
+ * cancels whatever is left only after the ring is closed, without calling
+ * complete(): a running request may still use its buffers after this returns,
+ * and a queued close may leave its fd open.
  */
 void chio_loop_exit(struct chio_loop *loop);
 
