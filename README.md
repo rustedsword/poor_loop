@@ -35,12 +35,13 @@ int main(void)
 	struct chio_op op = CHIO_OP_INIT(on_read);
 	struct io_uring_params params = {};
 	struct chio_loop loop;
+	int ret;
 
 	if (chio_loop_init(&loop, 64, &params))
 		return 1;
 	io_uring_prep_read(chio_get_sqe(&loop, &op), 0, buf, sizeof(buf), -1);
-	chio_loop_run(&loop);
+	ret = chio_loop_run(&loop);
 	chio_loop_exit(&loop);
-	return 0;
+	return ret != 0;
 }
 ```

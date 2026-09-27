@@ -45,6 +45,16 @@ static void nothing(struct chio_loop *, struct chio_timer *)
 {
 }
 
+static void run(struct chio_loop *loop)
+{
+	int ret = chio_loop_run(loop);
+
+	if (ret) {
+		fprintf(stderr, "chio_loop_run: %s\n", strerror(-ret));
+		exit(1);
+	}
+}
+
 static uint64_t arm_cost(struct chio_loop *loop, struct chio_timer *spare,
 			 uint64_t deadline, unsigned rounds)
 {
@@ -103,7 +113,7 @@ static void bench_loop_timer(struct chio_loop *loop, uint64_t delay,
 		uint64_t deadline = chio_now() + delay;
 
 		chio_timer_arm(loop, &probe.timer, deadline);
-		chio_loop_run(loop);
+		run(loop);
 		errors[i] = (int64_t)(probe.fired - deadline);
 	}
 }
@@ -195,7 +205,7 @@ static bool check_order(struct chio_loop *loop)
 	for (unsigned i = 0; i < 3; i++)
 		chio_timer_arm(loop, &timers[i].timer, deadlines[i]);
 	chio_timer_arm(loop, &timers[1].timer, base + 5 * NS_PER_MS);
-	chio_loop_run(loop);
+	run(loop);
 	printf("deadline order: fired %u%s\n", order,
 	       order == 123 ? " (ok)" : " (WRONG)");
 	return order == 123;
