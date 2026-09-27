@@ -28,7 +28,7 @@ chioloop_dep = declare_dependency(
 )
 meson.override_dependency('chioloop', chioloop_dep)
 
-install_headers('include/chioloop.h')
+install_headers('include/chioloop.h', 'include/chio_list.h')
 
 import('pkgconfig').generate(
   chioloop,
@@ -38,4 +38,5 @@ import('pkgconfig').generate(
 
 if not meson.is_subproject()
   subdir('tests')
+  subdir('tools')
 endif

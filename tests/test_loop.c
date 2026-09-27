@@ -25,10 +25,9 @@
 #define SKIP 77
 #define MANY 1000
 #define RESUBMITS 100
-#define CHAIN 10
+#define TIMERS 256
+#define TIMER_STEPS 20'000
 #define ARRAY_SIZE(array) (sizeof(array) / sizeof((array)[0]))
-#define container_of(ptr, type, member) \
-	((type *)(void *)((char *)(ptr) - offsetof(type, member)))
 
 #define CHECK(cond) \
 	do { \
@@ -131,12 +130,6 @@ static void arm_read(struct chio_loop *loop, struct chio_op *op, int fd,
 	io_uring_prep_read(get_sqe(loop, op), fd, buf, len, 0);
 }
 
-static void drain(struct chio_loop *loop, struct chio_op *op)
-{
-	while (op->pending)
-		CHECK(chio_loop_run_once(loop, true) >= 0);
-}
-
 struct rec {
 	struct chio_op op;
 	int calls;
@@ -145,10 +138,35 @@ struct rec {
 	unsigned flags;
 };
 
-static void rec_complete(struct chio_loop *, struct chio_op *op,
+static struct chio_op **awaited;
+static size_t awaited_count;
+
+static bool settled(void)
+{
+	for (size_t i = 0; i < awaited_count; i++)
+		if (awaited[i]->pending)
+			return false;
+	return true;
+}
+
+static void drain_ops(struct chio_loop *loop, struct chio_op **ops,
+		      size_t count)
+{
+	awaited = ops;
+	awaited_count = count;
+	if (!settled())
+		CHECK_EQ(chio_loop_run(loop), 0);
+	awaited_count = 0;
+}
+
+#define drain(loop, ...) \
+	drain_ops(loop, (struct chio_op *[]){ __VA_ARGS__ }, \
+		  ARRAY_SIZE(((struct chio_op *[]){ __VA_ARGS__ })))
+
+static void rec_complete(struct chio_loop *loop, struct chio_op *op,
 			 const struct io_uring_cqe *cqe)
 {
-	struct rec *rec = container_of(op, struct rec, op);
+	struct rec *rec = chio_container_of(op, struct rec, op);
 
 	CHECK_EQ(op->pending, !!(cqe->flags & IORING_CQE_F_MORE));
 	CHECK(io_uring_cqe_get_data(cqe) == op);
@@ -157,6 +175,8 @@ static void rec_complete(struct chio_loop *, struct chio_op *op,
 		rec->more++;
 	rec->res = cqe->res;
 	rec->flags = cqe->flags;
+	if (awaited_count && settled())
+		chio_loop_stop(loop);
 }
 
 static void rec_init(struct rec *rec, chio_complete_fn *complete)
@@ -168,6 +188,42 @@ static void stop_complete(struct chio_loop *loop, struct chio_op *op,
 			  const struct io_uring_cqe *cqe)
 {
 	rec_complete(loop, op, cqe);
+	chio_loop_stop(loop);
+}
+
+struct tick {
+	struct chio_timer timer;
+	int id;
+	int fired;
+	bool armed;
+	uint64_t at;
+};
+
+static uint64_t order;
+
+static void tick_fire(struct chio_loop *, struct chio_timer *timer)
+{
+	struct tick *tick = chio_container_of(timer, struct tick, timer);
+
+	tick->fired++;
+	tick->armed = chio_timer_armed(timer);
+	tick->at = chio_now();
+	order = order * 10 + tick->id;
+}
+
+static void tick_init(struct tick *tick, chio_timer_fn *fire, int id)
+{
+	*tick = (struct tick){ .timer = CHIO_TIMER_INIT(fire), .id = id };
+}
+
+static void stop_fire(struct chio_loop *loop, struct chio_timer *timer)
+{
+	tick_fire(loop, timer);
+	chio_loop_stop(loop);
+}
+
+static void halt(struct chio_loop *loop, struct chio_timer *)
+{
 	chio_loop_stop(loop);
 }
 
@@ -184,6 +240,21 @@ static int test_op_init(void)
 	CHECK(op.complete == rec_complete);
 	CHECK(!op.pending);
 	CHECK(!memcmp(op.data, zero, sizeof(zero)));
+	return 0;
+}
+
+static int test_timer_init(void)
+{
+	struct chio_timer lit = CHIO_TIMER_INIT(tick_fire), timer;
+
+	CHECK(lit.fire == tick_fire);
+	CHECK(!chio_timer_armed(&lit));
+	CHECK_EQ(lit.deadline, 0);
+	memset(&timer, 0xa5, sizeof(timer));
+	chio_timer_init(&timer, tick_fire);
+	CHECK(timer.fire == tick_fire);
+	CHECK(!chio_timer_armed(&timer));
+	CHECK_EQ(timer.deadline, 0);
 	return 0;
 }
 
@@ -267,82 +338,36 @@ static int test_nop(void)
 	return 0;
 }
 
-static int test_nowait(void)
-{
-	struct chio_loop loop;
-	char buf[8] = {};
+struct storm {
 	struct rec rec;
-	int fds[2];
+	struct tick stopper;
+};
 
-	make_pipe(fds);
-	loop_init(&loop, 8);
-	rec_init(&rec, rec_complete);
-	arm_read(&loop, &rec.op, fds[0], buf, sizeof(buf));
-	CHECK_EQ(chio_loop_run_once(&loop, false), 0);
-	CHECK_EQ(chio_loop_run_once(&loop, false), 0);
-	CHECK_EQ(rec.calls, 0);
-	CHECK(rec.op.pending);
-	CHECK_EQ(write(fds[1], "ping", 4), 4);
-	CHECK_EQ(chio_loop_run_once(&loop, true), 1);
-	CHECK_EQ(rec.calls, 1);
-	CHECK_EQ(rec.res, 4);
-	CHECK(!memcmp(buf, "ping", 4));
-	CHECK(!rec.op.pending);
-	chio_loop_exit(&loop);
-	close_pipe(fds);
-	return 0;
-}
-
-static int test_batch(void)
-{
-	struct chio_loop loop;
-	struct rec recs[4];
-	size_t i;
-
-	loop_init(&loop, 8);
-	for (i = 0; i < ARRAY_SIZE(recs); i++) {
-		rec_init(&recs[i], rec_complete);
-		arm_nop(&loop, &recs[i].op);
-	}
-	CHECK_EQ(chio_loop_run_once(&loop, true), ARRAY_SIZE(recs));
-	for (i = 0; i < ARRAY_SIZE(recs); i++) {
-		CHECK_EQ(recs[i].calls, 1);
-		CHECK_EQ(recs[i].res, 0);
-		CHECK(!recs[i].op.pending);
-	}
-	chio_loop_exit(&loop);
-	return 0;
-}
-
-static void chain_complete(struct chio_loop *loop, struct chio_op *op,
+static void storm_complete(struct chio_loop *loop, struct chio_op *op,
 			   const struct io_uring_cqe *cqe)
 {
-	struct rec *rec = container_of(op, struct rec, op);
+	struct storm *storm = chio_container_of(op, struct storm, rec.op);
 
 	rec_complete(loop, op, cqe);
-	if (rec->calls < CHAIN) {
-		arm_nop(loop, op);
-		CHECK(io_uring_submit(&loop->ring) > 0);
-	}
+	if (storm->rec.calls == 3)
+		chio_timer_arm(loop, &storm->stopper.timer, 0);
+	arm_nop(loop, op);
+	CHECK(io_uring_submit(&loop->ring) > 0);
 }
 
 static int test_bounded_dispatch(void)
 {
 	struct chio_loop loop;
-	struct rec rec;
-	int i;
+	struct storm storm;
 
 	loop_init(&loop, 8);
-	rec_init(&rec, chain_complete);
-	arm_nop(&loop, &rec.op);
-	for (i = 1; i <= CHAIN; i++) {
-		CHECK_EQ(chio_loop_run_once(&loop, true), 1);
-		CHECK_EQ(rec.calls, i);
-		if (i < CHAIN && !(mode->flags & IORING_SETUP_SQPOLL))
-			CHECK_EQ(io_uring_cq_ready(&loop.ring), 1);
-	}
-	CHECK(!rec.op.pending);
-	CHECK_EQ(chio_loop_run_once(&loop, false), 0);
+	rec_init(&storm.rec, storm_complete);
+	tick_init(&storm.stopper, stop_fire, 1);
+	arm_nop(&loop, &storm.rec.op);
+	CHECK_EQ(chio_loop_run(&loop), 0);
+	CHECK_EQ(storm.stopper.fired, 1);
+	CHECK(storm.rec.calls >= 3);
+	CHECK(storm.rec.op.pending);
 	chio_loop_exit(&loop);
 	return 0;
 }
@@ -359,6 +384,8 @@ static void resubmit_complete(struct chio_loop *loop, struct chio_op *op,
 	memcpy(op->data, &count, sizeof(count));
 	if (count < RESUBMITS)
 		arm_nop(loop, op);
+	else
+		chio_loop_stop(loop);
 }
 
 static int test_resubmit(void)
@@ -369,7 +396,7 @@ static int test_resubmit(void)
 
 	loop_init(&loop, 4);
 	arm_nop(&loop, &op);
-	drain(&loop, &op);
+	CHECK_EQ(chio_loop_run(&loop), 0);
 	memcpy(&count, op.data, sizeof(count));
 	CHECK_EQ(count, RESUBMITS);
 	chio_loop_exit(&loop);
@@ -419,8 +446,7 @@ static int test_submit_error(void)
 	CHECK_EQ(errno, EBADFD);
 	CHECK(!recs[2].op.pending);
 	enable_ring(&loop);
-	drain(&loop, &recs[0].op);
-	drain(&loop, &recs[1].op);
+	drain(&loop, &recs[0].op, &recs[1].op);
 	CHECK_EQ(recs[0].calls, 1);
 	CHECK_EQ(recs[1].calls, 1);
 	CHECK_EQ(recs[2].calls, 0);
@@ -459,8 +485,6 @@ static int test_run_error(void)
 	CHECK_EQ(chio_loop_init(&loop, 8, &p), 0);
 	rec_init(&rec, rec_complete);
 	arm_nop(&loop, &rec.op);
-	CHECK_EQ(chio_loop_run_once(&loop, false), -EBADFD);
-	CHECK_EQ(chio_loop_run_once(&loop, true), -EBADFD);
 	CHECK_EQ(chio_loop_run(&loop), -EBADFD);
 	CHECK(rec.op.pending);
 	enable_ring(&loop);
@@ -485,7 +509,7 @@ static int test_submit_retry(void)
 		rec_init(&reader, rec_complete);
 		rec_init(&nop, stop_complete);
 		arm_read(&loop, &reader.op, fds[0], buf, sizeof(buf));
-		CHECK_EQ(chio_loop_run_once(&loop, false), 0);
+		CHECK_EQ(io_uring_submit(&loop.ring), 1);
 		CHECK_EQ(write(fds[1], "x", 1), 1);
 		arm_nop(&loop, &nop.op);
 
@@ -577,8 +601,7 @@ static int test_pipe_io(void)
 	arm_read(&loop, &reader.op, fds[0], buf, sizeof(buf));
 	io_uring_prep_write(get_sqe(&loop, &writer.op), fds[1], msg,
 			    sizeof(msg), 0);
-	drain(&loop, &reader.op);
-	drain(&loop, &writer.op);
+	drain(&loop, &reader.op, &writer.op);
 	CHECK_EQ(writer.calls, 1);
 	CHECK_EQ(writer.res, sizeof(msg));
 	CHECK_EQ(reader.calls, 1);
@@ -606,8 +629,7 @@ static int test_linked_timeout(void)
 	io_uring_prep_read(sqe, fds[0], buf, sizeof(buf), 0);
 	sqe->flags |= IOSQE_IO_LINK;
 	io_uring_prep_link_timeout(get_sqe(&loop, &timer.op), &ts, 0);
-	drain(&loop, &reader.op);
-	drain(&loop, &timer.op);
+	drain(&loop, &reader.op, &timer.op);
 	CHECK_EQ(reader.calls, 1);
 	CHECK_EQ(reader.res, -ECANCELED);
 	CHECK_EQ(timer.calls, 1);
@@ -657,7 +679,8 @@ struct poll_cancel {
 static void poll_complete(struct chio_loop *loop, struct chio_op *op,
 			  const struct io_uring_cqe *cqe)
 {
-	struct poll_cancel *pc = container_of(op, struct poll_cancel, poll.op);
+	struct poll_cancel *pc = chio_container_of(op, struct poll_cancel,
+						   poll.op);
 
 	rec_complete(loop, op, cqe);
 	if (!(cqe->flags & IORING_CQE_F_MORE) || pc->poll.more != 1)
@@ -678,10 +701,9 @@ static int test_multishot_cancel(void)
 	rec_init(&pc.cancel, rec_complete);
 	io_uring_prep_poll_multishot(get_sqe(&loop, &pc.poll.op), fds[0],
 				     POLLIN);
-	CHECK_EQ(chio_loop_run_once(&loop, false), 0);
+	CHECK_EQ(io_uring_submit(&loop.ring), 1);
 	CHECK_EQ(write(fds[1], "x", 1), 1);
-	drain(&loop, &pc.poll.op);
-	drain(&loop, &pc.cancel.op);
+	drain(&loop, &pc.poll.op, &pc.cancel.op);
 	CHECK(pc.poll.more >= 1);
 	CHECK_EQ(pc.poll.calls, pc.poll.more + 1);
 	CHECK_EQ(pc.poll.res, -ECANCELED);
@@ -706,10 +728,9 @@ static void cancel_read(bool submitted)
 	rec_init(&cancel, rec_complete);
 	arm_read(&loop, &reader.op, fds[0], buf, sizeof(buf));
 	if (submitted)
-		CHECK_EQ(chio_loop_run_once(&loop, false), 0);
+		CHECK_EQ(io_uring_submit(&loop.ring), 1);
 	io_uring_prep_cancel(get_sqe(&loop, &cancel.op), &reader.op, 0);
-	drain(&loop, &reader.op);
-	drain(&loop, &cancel.op);
+	drain(&loop, &reader.op, &cancel.op);
 	CHECK_EQ(reader.calls, 1);
 	CHECK_EQ(reader.res, -ECANCELED);
 	CHECK_EQ(cancel.calls, 1);
@@ -767,8 +788,8 @@ static int test_cancel_fd(void)
 		ret = SKIP;
 	} else {
 		CHECK_EQ(cancel.res, ARRAY_SIZE(readers));
+		drain(&loop, &readers[0].op, &readers[1].op);
 		for (i = 0; i < ARRAY_SIZE(readers); i++) {
-			drain(&loop, &readers[i].op);
 			CHECK_EQ(readers[i].calls, 1);
 			CHECK_EQ(readers[i].res, -ECANCELED);
 		}
@@ -795,7 +816,7 @@ static int test_cancel_any(void)
 	arm_read(&loop, &ops[0].op, fds[0], buf, sizeof(buf));
 	io_uring_prep_poll_add(get_sqe(&loop, &ops[1].op), fds[0], POLLIN);
 	io_uring_prep_timeout(get_sqe(&loop, &ops[2].op), &ts, 0, 0);
-	CHECK_EQ(chio_loop_run_once(&loop, false), 0);
+	CHECK_EQ(io_uring_submit(&loop.ring), 3);
 	io_uring_prep_cancel(get_sqe(&loop, &cancel.op), nullptr,
 			     IORING_ASYNC_CANCEL_ANY);
 	drain(&loop, &cancel.op);
@@ -803,8 +824,8 @@ static int test_cancel_any(void)
 		ret = SKIP;
 	} else {
 		CHECK_EQ(cancel.res, ARRAY_SIZE(ops));
+		drain(&loop, &ops[0].op, &ops[1].op, &ops[2].op);
 		for (i = 0; i < ARRAY_SIZE(ops); i++) {
-			drain(&loop, &ops[i].op);
 			CHECK_EQ(ops[i].calls, 1);
 			CHECK_EQ(ops[i].res, -ECANCELED);
 		}
@@ -814,20 +835,296 @@ static int test_cancel_any(void)
 	return ret;
 }
 
+static int test_timer(void)
+{
+	struct chio_loop loop;
+	struct tick tick;
+	uint64_t deadline;
+
+	loop_init(&loop, 8);
+	tick_init(&tick, stop_fire, 1);
+	CHECK(!chio_timer_armed(&tick.timer));
+	deadline = chio_now() + 2'000'000;
+	chio_timer_arm(&loop, &tick.timer, deadline);
+	CHECK(chio_timer_armed(&tick.timer));
+	CHECK_EQ(tick.timer.deadline, deadline);
+	CHECK_EQ(chio_loop_run(&loop), 0);
+	CHECK_EQ(tick.fired, 1);
+	CHECK(!tick.armed);
+	CHECK(tick.at >= deadline);
+	CHECK(!chio_timer_armed(&tick.timer));
+	chio_loop_exit(&loop);
+	return 0;
+}
+
+static int test_timer_order(void)
+{
+	static const uint64_t deadlines[] = { 30, 10, 20, 10, 40 };
+	struct chio_timer stopper = CHIO_TIMER_INIT(halt);
+	struct tick ticks[ARRAY_SIZE(deadlines)];
+	struct chio_loop loop;
+	size_t i;
+
+	loop_init(&loop, 8);
+	for (i = 0; i < ARRAY_SIZE(ticks); i++) {
+		tick_init(&ticks[i], tick_fire, i + 1);
+		chio_timer_arm(&loop, &ticks[i].timer, deadlines[i]);
+	}
+	chio_timer_arm(&loop, &ticks[4].timer, 5);
+	chio_timer_arm(&loop, &ticks[1].timer, 10);
+	chio_timer_arm(&loop, &stopper, 100);
+	order = 0;
+	CHECK_EQ(chio_loop_run(&loop), 0);
+	CHECK_EQ(order, 54231);
+	chio_loop_exit(&loop);
+	return 0;
+}
+
+struct pair {
+	struct tick first;
+	struct tick second;
+};
+
+static void disarm_second(struct chio_loop *loop, struct chio_timer *timer)
+{
+	struct pair *pair = chio_container_of(timer, struct pair, first.timer);
+
+	tick_fire(loop, timer);
+	chio_timer_disarm(&pair->second.timer);
+}
+
+static int test_timer_disarm(void)
+{
+	struct chio_timer stopper = CHIO_TIMER_INIT(halt);
+	struct chio_loop loop;
+	struct pair pair;
+	struct tick tick;
+
+	loop_init(&loop, 8);
+	tick_init(&tick, tick_fire, 1);
+	chio_timer_arm(&loop, &tick.timer, 1);
+	chio_timer_disarm(&tick.timer);
+	CHECK(!chio_timer_armed(&tick.timer));
+	chio_timer_disarm(&tick.timer);
+	tick_init(&pair.first, disarm_second, 2);
+	tick_init(&pair.second, tick_fire, 3);
+	chio_timer_arm(&loop, &pair.first.timer, 1);
+	chio_timer_arm(&loop, &pair.second.timer, 2);
+	chio_timer_arm(&loop, &stopper, 3);
+	CHECK_EQ(chio_loop_run(&loop), 0);
+	CHECK_EQ(tick.fired, 0);
+	CHECK_EQ(pair.first.fired, 1);
+	CHECK_EQ(pair.second.fired, 0);
+	CHECK(!chio_timer_armed(&pair.second.timer));
+	chio_loop_exit(&loop);
+	return 0;
+}
+
+static void rearm_fire(struct chio_loop *loop, struct chio_timer *timer)
+{
+	tick_fire(loop, timer);
+	chio_timer_arm(loop, timer, 0);
+}
+
+static int test_timer_rearm(void)
+{
+	struct chio_loop loop;
+	struct tick tick;
+	struct rec rec;
+
+	loop_init(&loop, 8);
+	tick_init(&tick, rearm_fire, 1);
+	rec_init(&rec, stop_complete);
+	chio_timer_arm(&loop, &tick.timer, 0);
+	arm_nop(&loop, &rec.op);
+	CHECK_EQ(chio_loop_run(&loop), 0);
+	CHECK_EQ(rec.calls, 1);
+	CHECK(tick.fired >= 1);
+	CHECK(chio_timer_armed(&tick.timer));
+	chio_timer_disarm(&tick.timer);
+	chio_loop_exit(&loop);
+	return 0;
+}
+
+static void periodic_fire(struct chio_loop *loop, struct chio_timer *timer)
+{
+	struct tick *tick = chio_container_of(timer, struct tick, timer);
+
+	tick_fire(loop, timer);
+	CHECK(tick->at >= timer->deadline);
+	if (tick->fired < 5)
+		chio_timer_arm(loop, timer, timer->deadline + 1'000'000);
+	else
+		chio_loop_stop(loop);
+}
+
+static int test_timer_periodic(void)
+{
+	struct chio_loop loop;
+	struct tick tick;
+	uint64_t start;
+
+	loop_init(&loop, 8);
+	tick_init(&tick, periodic_fire, 1);
+	start = chio_now();
+	chio_timer_arm(&loop, &tick.timer, start + 1'000'000);
+	CHECK_EQ(chio_loop_run(&loop), 0);
+	CHECK_EQ(tick.fired, 5);
+	CHECK(tick.at >= start + 5'000'000);
+	chio_loop_exit(&loop);
+	return 0;
+}
+
+static int test_timer_wait(void)
+{
+	struct chio_loop loop;
+	struct rec reader;
+	struct tick tick;
+	char buf[8];
+	int fds[2];
+
+	make_pipe(fds);
+	loop_init(&loop, 8);
+	rec_init(&reader, rec_complete);
+	tick_init(&tick, stop_fire, 1);
+	arm_read(&loop, &reader.op, fds[0], buf, sizeof(buf));
+	chio_timer_arm(&loop, &tick.timer, chio_now() + 2'000'000);
+	CHECK_EQ(chio_loop_run(&loop), 0);
+	CHECK_EQ(tick.fired, 1);
+	CHECK_EQ(reader.calls, 0);
+	CHECK(reader.op.pending);
+
+	chio_timer_arm(&loop, &tick.timer, chio_now() + 10'000'000'000);
+	CHECK_EQ(write(fds[1], "x", 1), 1);
+	drain(&loop, &reader.op);
+	CHECK_EQ(reader.res, 1);
+	CHECK_EQ(tick.fired, 1);
+	CHECK(chio_timer_armed(&tick.timer));
+	chio_timer_disarm(&tick.timer);
+	chio_loop_exit(&loop);
+	close_pipe(fds);
+	return 0;
+}
+
+static int test_timer_stop(void)
+{
+	struct chio_loop loop;
+	struct tick tick;
+
+	loop_init(&loop, 8);
+	tick_init(&tick, stop_fire, 1);
+	chio_timer_arm(&loop, &tick.timer, chio_now() + 1'000'000);
+	CHECK_EQ(chio_loop_run(&loop), 0);
+	CHECK_EQ(tick.fired, 1);
+	chio_loop_exit(&loop);
+	return 0;
+}
+
+struct stamped {
+	struct chio_timer timer;
+	unsigned seq;
+};
+
+static uint64_t fired_deadline;
+static unsigned fired_seq, fired_count;
+
+static void stamped_fire(struct chio_loop *, struct chio_timer *timer)
+{
+	struct stamped *stamped = chio_container_of(timer, struct stamped,
+						    timer);
+
+	CHECK(timer->deadline >= fired_deadline);
+	if (timer->deadline == fired_deadline)
+		CHECK(stamped->seq > fired_seq);
+	fired_deadline = timer->deadline;
+	fired_seq = stamped->seq;
+	fired_count++;
+}
+
+static void check_sorted(struct chio_loop *loop, unsigned armed)
+{
+	struct chio_timer *timer;
+	uint64_t deadline = 0;
+	unsigned count = 0, seq = 0;
+
+	chio_list_for_each(timer, &loop->timers, link) {
+		struct stamped *stamped =
+			chio_container_of(timer, struct stamped, timer);
+
+		CHECK(timer->deadline >= deadline);
+		if (timer->deadline == deadline)
+			CHECK(stamped->seq > seq);
+		deadline = timer->deadline;
+		seq = stamped->seq;
+		count++;
+	}
+	CHECK_EQ(count, armed);
+}
+
+static uint32_t xorshift(uint32_t *state)
+{
+	uint32_t x = *state;
+
+	x ^= x << 13;
+	x ^= x >> 17;
+	x ^= x << 5;
+	return *state = x;
+}
+
+static int test_timer_sorted(void)
+{
+	struct stamped *timers = calloc(TIMERS, sizeof(*timers));
+	struct chio_timer stopper = CHIO_TIMER_INIT(halt);
+	unsigned armed = 0, seq = 0, step, i;
+	struct chio_loop loop;
+	uint32_t rng = 1;
+
+	CHECK(timers);
+	loop_init(&loop, 8);
+	for (i = 0; i < TIMERS; i++)
+		chio_timer_init(&timers[i].timer, stamped_fire);
+	for (step = 0; step < TIMER_STEPS; step++) {
+		struct stamped *stamped = &timers[xorshift(&rng) % TIMERS];
+
+		armed -= chio_timer_armed(&stamped->timer);
+		if (xorshift(&rng) % 4) {
+			stamped->seq = ++seq;
+			chio_timer_arm(&loop, &stamped->timer,
+				       1 + xorshift(&rng) % 64);
+			armed++;
+		} else {
+			chio_timer_disarm(&stamped->timer);
+		}
+		check_sorted(&loop, armed);
+	}
+	fired_deadline = 0;
+	fired_seq = 0;
+	fired_count = 0;
+	chio_timer_arm(&loop, &stopper, 1'000);
+	CHECK_EQ(chio_loop_run(&loop), 0);
+	CHECK_EQ(fired_count, armed);
+	CHECK(chio_list_empty(&loop.timers));
+	chio_loop_exit(&loop);
+	free(timers);
+	return 0;
+}
+
 struct heap_op {
 	struct chio_op op;
 	int *freed;
 };
 
-static void heap_complete(struct chio_loop *, struct chio_op *op,
+static void heap_complete(struct chio_loop *loop, struct chio_op *op,
 			  const struct io_uring_cqe *cqe)
 {
-	struct heap_op *heap = container_of(op, struct heap_op, op);
+	struct heap_op *heap = chio_container_of(op, struct heap_op, op);
+	int *freed = heap->freed;
 
 	CHECK_EQ(cqe->res, 0);
-	(*heap->freed)++;
 	memset(heap, 0xa5, sizeof(*heap));
 	free(heap);
+	if (++*freed == 8)
+		chio_loop_stop(loop);
 }
 
 static int test_free_in_callback(void)
@@ -844,8 +1141,8 @@ static int test_free_in_callback(void)
 		heap->freed = &freed;
 		arm_nop(&loop, &heap->op);
 	}
-	while (freed < 8)
-		CHECK(chio_loop_run_once(&loop, true) >= 0);
+	CHECK_EQ(chio_loop_run(&loop), 0);
+	CHECK_EQ(freed, 8);
 	chio_loop_exit(&loop);
 	return 0;
 }
@@ -919,25 +1216,17 @@ static int test_eintr(void)
 
 	make_pipe(fds);
 	alarms = 0;
-	alarm_fd = -1;
+	alarm_fd = fds[1];
 	CHECK_EQ(sigemptyset(&sa.sa_mask), 0);
 	CHECK_EQ(sigaction(SIGALRM, &sa, &old), 0);
 	loop_init(&loop, 8);
 	rec_init(&rec, stop_complete);
 	arm_read(&loop, &rec.op, fds[0], buf, 1);
-	CHECK_EQ(chio_loop_run_once(&loop, false), 0);
-
-	set_alarm(20000);
-	CHECK_EQ(chio_loop_run_once(&loop, true), 0);
-	set_alarm(0);
-	CHECK(alarms >= 1);
-	CHECK(rec.op.pending);
-
-	alarm_fd = fds[1];
+	CHECK_EQ(io_uring_submit(&loop.ring), 1);
 	set_alarm(20000);
 	CHECK_EQ(chio_loop_run(&loop), 0);
 	set_alarm(0);
-	CHECK(alarms >= 2);
+	CHECK(alarms >= 1);
 	CHECK_EQ(rec.calls, 1);
 	CHECK_EQ(rec.res, 1);
 	CHECK_EQ(buf[0], 'x');
@@ -961,7 +1250,7 @@ static int test_exit_pending(void)
 	loop_init(&loop, 8);
 	rec_init(&rec, rec_complete);
 	arm_read(&loop, &rec.op, fds[0], buf, sizeof(buf));
-	CHECK_EQ(chio_loop_run_once(&loop, false), 0);
+	CHECK_EQ(io_uring_submit(&loop.ring), 1);
 	chio_loop_exit(&loop);
 	CHECK_EQ(rec.calls, 0);
 	CHECK(rec.op.pending);
@@ -978,12 +1267,11 @@ struct test {
 
 static const struct test tests[] = {
 	TEST(op_init),
+	TEST(timer_init),
 	TEST(init_exit),
 	TEST(init_params),
 	TEST(init_errors),
 	TEST(nop),
-	TEST(nowait),
-	TEST(batch),
 	TEST(bounded_dispatch),
 	TEST(resubmit),
 	TEST(sq_full),
@@ -1001,6 +1289,14 @@ static const struct test tests[] = {
 	TEST(cancel_done),
 	TEST(cancel_fd),
 	TEST(cancel_any),
+	TEST(timer),
+	TEST(timer_order),
+	TEST(timer_disarm),
+	TEST(timer_rearm),
+	TEST(timer_periodic),
+	TEST(timer_wait),
+	TEST(timer_stop),
+	TEST(timer_sorted),
 	TEST(free_in_callback),
 	TEST(stop),
 	TEST(eintr),
