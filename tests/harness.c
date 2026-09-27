@@ -49,7 +49,7 @@ void loop_init(struct chio_loop *loop, unsigned entries)
 
 void enable_ring(struct chio_loop *loop)
 {
-	CHECK_EQ(syscall(__NR_io_uring_register, loop->ring.ring_fd,
+	CHECK_EQ(syscall(__NR_io_uring_register, chio_loop_ring(loop)->ring_fd,
 			 IORING_REGISTER_ENABLE_RINGS, nullptr, 0), 0);
 }
 

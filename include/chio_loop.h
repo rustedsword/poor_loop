@@ -17,6 +17,16 @@ struct chio_loop {
 };
 
 /*
+ * Return the ring for direct use with liburing.
+ *
+ * The loop owns the CQ, so never consume CQEs.
+ */
+static inline struct io_uring *chio_loop_ring(struct chio_loop *loop)
+{
+	return &loop->ring;
+}
+
+/*
  * Initialize the event loop.
  *
  * 'params' is passed to io_uring_queue_init_params(), which writes the actual

@@ -164,7 +164,7 @@ static int test_untracked(void)
 	struct rec rec;
 
 	loop_init(&loop, 8);
-	sqe = io_uring_get_sqe(&loop.ring);
+	sqe = io_uring_get_sqe(chio_loop_ring(&loop));
 	CHECK(sqe);
 	io_uring_prep_nop(sqe);
 	io_uring_sqe_set_data(sqe, nullptr);
@@ -172,7 +172,7 @@ static int test_untracked(void)
 	arm_nop(&loop, &rec.op);
 	drain(&loop, &rec.op);
 	CHECK_EQ(rec.calls, 1);
-	CHECK_EQ(io_uring_cq_ready(&loop.ring), 0);
+	CHECK_EQ(io_uring_cq_ready(chio_loop_ring(&loop)), 0);
 	chio_loop_exit(&loop);
 	return 0;
 }
@@ -308,7 +308,7 @@ static int test_multishot_cancel(void)
 	rec_init(&pc.cancel, rec_complete);
 	io_uring_prep_poll_multishot(get_sqe(&loop, &pc.poll.op), fds[0],
 				     POLLIN);
-	CHECK_EQ(io_uring_submit(&loop.ring), 1);
+	CHECK_EQ(io_uring_submit(chio_loop_ring(&loop)), 1);
 	CHECK_EQ(write(fds[1], "x", 1), 1);
 	drain(&loop, &pc.poll.op, &pc.cancel.op);
 	CHECK(pc.poll.more >= 1);
@@ -335,7 +335,7 @@ static void cancel_read(bool submitted)
 	rec_init(&cancel, rec_complete);
 	arm_read(&loop, &reader.op, fds[0], sizeof(buf), &buf);
 	if (submitted)
-		CHECK_EQ(io_uring_submit(&loop.ring), 1);
+		CHECK_EQ(io_uring_submit(chio_loop_ring(&loop)), 1);
 	io_uring_prep_cancel(get_sqe(&loop, &cancel.op), &reader.op, 0);
 	drain(&loop, &reader.op, &cancel.op);
 	CHECK_EQ(reader.calls, 1);
@@ -424,7 +424,7 @@ static int test_cancel_any(void)
 	arm_read(&loop, &ops[0].op, fds[0], sizeof(buf), &buf);
 	io_uring_prep_poll_add(get_sqe(&loop, &ops[1].op), fds[0], POLLIN);
 	io_uring_prep_timeout(get_sqe(&loop, &ops[2].op), &ts, 0, 0);
-	CHECK_EQ(io_uring_submit(&loop.ring), 3);
+	CHECK_EQ(io_uring_submit(chio_loop_ring(&loop)), 3);
 	io_uring_prep_cancel(get_sqe(&loop, &cancel.op), nullptr,
 			     IORING_ASYNC_CANCEL_ANY);
 	drain(&loop, &cancel.op);

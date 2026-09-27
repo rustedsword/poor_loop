@@ -18,13 +18,13 @@ static int test_init_exit(void)
 	setup_params(&p);
 	memset(&loop, 0xa5, sizeof(loop));
 	CHECK_EQ(chio_loop_init(&loop, 8, &p), 0);
-	CHECK_EQ(loop.ring.sq.ring_entries, 8);
+	CHECK_EQ(chio_loop_ring(&loop)->sq.ring_entries, 8);
 	CHECK(!loop.stop);
 	rec_init(&rec, rec_complete);
 	arm_nop(&loop, &rec.op);
 	drain(&loop, &rec.op);
 	CHECK_EQ(rec.calls, 1);
-	fd = loop.ring.ring_fd;
+	fd = chio_loop_ring(&loop)->ring_fd;
 	chio_loop_exit(&loop);
 	CHECK_EQ(fcntl(fd, F_GETFD), -1);
 	CHECK_EQ(errno, EBADF);
@@ -44,8 +44,8 @@ static int test_init_params(void)
 	CHECK_EQ(p.sq_entries, 4);
 	CHECK_EQ(p.cq_entries, 64);
 	CHECK(p.features & IORING_FEAT_NODROP);
-	CHECK_EQ(loop.ring.sq.ring_entries, 4);
-	CHECK_EQ(loop.ring.cq.ring_entries, 64);
+	CHECK_EQ(chio_loop_ring(&loop)->sq.ring_entries, 4);
+	CHECK_EQ(chio_loop_ring(&loop)->cq.ring_entries, 64);
 	rec_init(&rec, rec_complete);
 	arm_nop(&loop, &rec.op);
 	drain(&loop, &rec.op);
@@ -81,7 +81,7 @@ static void storm_complete(struct chio_loop *loop, struct chio_op *op,
 	if (storm->rec.calls == 3)
 		chio_timer_arm(loop, &storm->stopper.timer, 0);
 	arm_nop(loop, op);
-	CHECK(io_uring_submit(&loop->ring) > 0);
+	CHECK(io_uring_submit(chio_loop_ring(loop)) > 0);
 }
 
 static int test_bounded_dispatch(void)
@@ -156,7 +156,7 @@ static int test_submit_retry(void)
 		rec_init(&reader, rec_complete);
 		rec_init(&nop, stop_complete);
 		arm_read(&loop, &reader.op, fds[0], sizeof(buf), &buf);
-		CHECK_EQ(io_uring_submit(&loop.ring), 1);
+		CHECK_EQ(io_uring_submit(chio_loop_ring(&loop)), 1);
 		CHECK_EQ(write(fds[1], "x", 1), 1);
 		arm_nop(&loop, &nop.op);
 
@@ -251,7 +251,7 @@ static int test_eintr(void)
 	loop_init(&loop, 8);
 	rec_init(&rec, stop_complete);
 	arm_read(&loop, &rec.op, fds[0], sizeof(buf), &buf);
-	CHECK_EQ(io_uring_submit(&loop.ring), 1);
+	CHECK_EQ(io_uring_submit(chio_loop_ring(&loop)), 1);
 	set_alarm(20000);
 	CHECK_EQ(chio_loop_run(&loop), 0);
 	set_alarm(0);
@@ -279,7 +279,7 @@ static int test_exit_pending(void)
 	loop_init(&loop, 8);
 	rec_init(&rec, rec_complete);
 	arm_read(&loop, &rec.op, fds[0], sizeof(buf), &buf);
-	CHECK_EQ(io_uring_submit(&loop.ring), 1);
+	CHECK_EQ(io_uring_submit(chio_loop_ring(&loop)), 1);
 	chio_loop_exit(&loop);
 	CHECK_EQ(rec.calls, 0);
 	CHECK(rec.op.pending);
