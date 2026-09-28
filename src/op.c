@@ -54,6 +54,21 @@ struct io_uring_sqe *chio_get_untracked_sqe(struct chio_loop *loop)
 	return sqe;
 }
 
+struct io_uring_sqe *chio_get_untracked_sqe_or_submit(struct chio_loop *loop)
+{
+	struct io_uring_sqe *sqe = chio_get_untracked_sqe(loop);
+	int ret;
+
+	if (uring_likely(sqe))
+		return sqe;
+	ret = chio_check_sq_space_or_submit(loop, 1);
+	if (ret) {
+		errno = -ret;
+		return nullptr;
+	}
+	return chio_get_untracked_sqe(loop);
+}
+
 struct io_uring_sqe *chio_get_sqe_or_submit(struct chio_loop *loop,
 					    struct chio_op *op)
 {

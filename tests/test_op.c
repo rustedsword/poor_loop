@@ -178,6 +178,9 @@ static int test_submit_error(void)
 	errno = 0;
 	CHECK(!chio_get_sqe_or_submit(&loop, &recs[2].op));
 	CHECK_EQ(errno, EBADFD);
+	errno = 0;
+	CHECK(!chio_get_untracked_sqe_or_submit(&loop));
+	CHECK_EQ(errno, EBADFD);
 	CHECK(!recs[2].op.pending);
 	enable_ring(&loop);
 	drain(&loop, &recs[0].op, &recs[1].op);
@@ -237,6 +240,34 @@ static int test_untracked(void)
 	drain(&loop, &recs[4].op);
 	for (i = 0; i < ARRAY_SIZE(recs); i++)
 		CHECK_EQ(recs[i].calls, 1);
+	CHECK_EQ(io_uring_cq_ready(chio_loop_ring(&loop)), 0);
+	chio_loop_exit(&loop);
+	return 0;
+}
+
+static int test_untracked_or_submit(void)
+{
+	struct io_uring_sqe *sqe;
+	struct chio_loop loop;
+	struct rec recs[5];
+	size_t i;
+
+	loop_init(&loop, 4);
+	for (i = 0; i < ARRAY_SIZE(recs); i++)
+		rec_init(&recs[i], rec_complete);
+	for (i = 0; i < 4; i++)
+		arm_nop(&loop, &recs[i].op);
+	sqe = chio_get_untracked_sqe_or_submit(&loop);
+	CHECK(sqe);
+	CHECK_EQ(sqe->user_data, 0);
+	io_uring_prep_nop(sqe);
+	arm_nop(&loop, &recs[4].op);
+	for (i = 0; i < ARRAY_SIZE(recs); i++)
+		drain(&loop, &recs[i].op);
+	for (i = 0; i < ARRAY_SIZE(recs); i++) {
+		CHECK_EQ(recs[i].calls, 1);
+		CHECK_EQ(recs[i].res, 0);
+	}
 	CHECK_EQ(io_uring_cq_ready(chio_loop_ring(&loop)), 0);
 	chio_loop_exit(&loop);
 	return 0;
@@ -590,6 +621,7 @@ const struct test tests[] = {
 	TEST(submit_error),
 	TEST(double_arm),
 	TEST(untracked),
+	TEST(untracked_or_submit),
 	TEST(op_error),
 	TEST(pipe_io),
 	TEST(linked_timeout),
