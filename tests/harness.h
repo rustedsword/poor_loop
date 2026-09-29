@@ -76,6 +76,7 @@ void enable_ring(struct poor_loop *loop);
 void make_pipe(int (*fds)[2]);
 void close_pipe(int (*fds)[2]);
 struct io_uring_sqe *get_sqe(struct poor_loop *loop, struct poor_loop_op *op);
+void submit(struct poor_loop *loop, int n);
 void arm_nop(struct poor_loop *loop, struct poor_loop_op *op);
 void _arm_read(struct poor_loop *loop, struct poor_loop_op *op, int fd, size_t len, char (*buf)[len]);
 void drain_ops(struct poor_loop *loop, size_t count, struct poor_loop_op *(*ops)[count]);

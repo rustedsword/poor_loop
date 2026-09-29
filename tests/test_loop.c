@@ -80,7 +80,7 @@ static void storm_complete(struct poor_loop *loop, struct poor_loop_op *op, cons
 	if (storm->rec.calls == 3)
 		poor_loop_timer_arm(loop, &storm->stopper.timer, 0);
 	arm_nop(loop, op);
-	CHECK(io_uring_submit(poor_loop_ring(loop)) > 0);
+	submit(loop, 1);
 }
 
 static int test_bounded_dispatch(void)
@@ -154,7 +154,7 @@ static int test_submit_retry(void)
 		rec_init(&reader, rec_complete);
 		rec_init(&nop, stop_complete);
 		arm_read(&loop, &reader.op, fds[0], buf);
-		CHECK_EQ(io_uring_submit(poor_loop_ring(&loop)), 1);
+		submit(&loop, 1);
 		CHECK_EQ(write(fds[1], "x", 1), 1);
 		arm_nop(&loop, &nop.op);
 
@@ -249,7 +249,7 @@ static int test_eintr(void)
 	loop_init(&loop, 8);
 	rec_init(&rec, stop_complete);
 	arm_read(&loop, &rec.op, fds[0], buf);
-	CHECK_EQ(io_uring_submit(poor_loop_ring(&loop)), 1);
+	submit(&loop, 1);
 	set_alarm(20000);
 	CHECK_EQ(poor_loop_run(&loop), 0);
 	set_alarm(0);
@@ -277,7 +277,7 @@ static int test_exit_pending(void)
 	loop_init(&loop, 8);
 	rec_init(&rec, rec_complete);
 	arm_read(&loop, &rec.op, fds[0], buf);
-	CHECK_EQ(io_uring_submit(poor_loop_ring(&loop)), 1);
+	submit(&loop, 1);
 	poor_loop_exit(&loop);
 	CHECK_EQ(rec.calls, 0);
 	CHECK(rec.op.pending);

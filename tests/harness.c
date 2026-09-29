@@ -69,6 +69,17 @@ struct io_uring_sqe *get_sqe(struct poor_loop *loop, struct poor_loop_op *op)
 	return sqe;
 }
 
+/* With SQPOLL, io_uring_submit() doesn't count the SQEs the kernel thread has already taken */
+void submit(struct poor_loop *loop, int n)
+{
+	int ret = io_uring_submit(poor_loop_ring(loop));
+
+	if (mode->flags & IORING_SETUP_SQPOLL)
+		CHECK(ret >= 0 && ret <= n);
+	else
+		CHECK_EQ(ret, n);
+}
+
 void arm_nop(struct poor_loop *loop, struct poor_loop_op *op)
 {
 	io_uring_prep_nop(get_sqe(loop, op));
