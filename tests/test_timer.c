@@ -49,10 +49,9 @@ static int test_timer_order(void)
 	struct poor_loop_timer stopper = POOR_LOOP_TIMER_INIT(halt);
 	struct tick ticks[ARRAY_SIZE(deadlines)];
 	struct poor_loop loop;
-	size_t i;
 
 	loop_init(&loop, 8);
-	for (i = 0; i < ARRAY_SIZE(ticks); i++) {
+	foreach_array_index(ticks, i) {
 		tick_init(&ticks[i], tick_fire, i + 1);
 		poor_loop_timer_arm(&loop, &ticks[i].timer, deadlines[i]);
 	}
@@ -173,7 +172,7 @@ static int test_timer_wait(void)
 	loop_init(&loop, 8);
 	rec_init(&reader, rec_complete);
 	tick_init(&tick, stop_fire, 1);
-	arm_read(&loop, &reader.op, fds[0], sizeof(buf), &buf);
+	arm_read(&loop, &reader.op, fds[0], buf);
 	poor_loop_timer_arm(&loop, &tick.timer, poor_loop_now() + 2'000'000);
 	CHECK_EQ(poor_loop_run(&loop), 0);
 	CHECK_EQ(tick.fired, 1);
@@ -256,18 +255,18 @@ static uint32_t xorshift(uint32_t *state)
 
 static int test_timer_sorted(void)
 {
-	struct stamped *timers = calloc(TIMERS, sizeof(*timers));
+	typeof(struct stamped[TIMERS]) *timers = calloc_array(timers);
 	struct poor_loop_timer stopper = POOR_LOOP_TIMER_INIT(halt);
-	unsigned armed = 0, seq = 0, step, i;
+	unsigned armed = 0, seq = 0, step;
 	struct poor_loop loop;
 	uint32_t rng = 1;
 
 	CHECK(timers);
 	loop_init(&loop, 8);
-	for (i = 0; i < TIMERS; i++)
-		poor_loop_timer_init(&timers[i].timer, stamped_fire);
+	foreach_array_ref(timers, stamped)
+		poor_loop_timer_init(&stamped->timer, stamped_fire);
 	for (step = 0; step < TIMER_STEPS; step++) {
-		struct stamped *stamped = &timers[xorshift(&rng) % TIMERS];
+		struct stamped *stamped = &arr(timers)[xorshift(&rng) % ARRAY_SIZE(timers)];
 
 		armed -= poor_loop_timer_armed(&stamped->timer);
 		if (xorshift(&rng) % 4) {
@@ -291,7 +290,7 @@ static int test_timer_sorted(void)
 	return 0;
 }
 
-const struct test tests[] = {
+static const struct test tests[] = {
 	TEST(timer_init),
 	TEST(timer),
 	TEST(timer_order),
@@ -303,4 +302,7 @@ const struct test tests[] = {
 	TEST(timer_sorted),
 };
 
-const size_t tests_count = ARRAY_SIZE(tests);
+int main(int argc, char **argv)
+{
+	return run_tests(array_ptr(argv, argc), tests);
+}

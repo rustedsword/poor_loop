@@ -12,7 +12,7 @@ static int logs, other_logs;
 static void log_record(struct poor_loop *loop, const char *fmt, va_list ap)
 {
 	logged_loop = loop;
-	vsnprintf(logged, sizeof(logged), fmt, ap);
+	vsnprintf(logged, ARRAY_SIZE_BYTES(logged), fmt, ap);
 	logs++;
 }
 
@@ -27,8 +27,8 @@ static void sq_short(unsigned entries)
 	struct rec recs[2];
 
 	loop_init(&loop, entries);
-	rec_init(&recs[0], rec_complete);
-	rec_init(&recs[1], rec_complete);
+	foreach_array_ref(recs, rec)
+		rec_init(rec, rec_complete);
 	arm_nop(&loop, &recs[0].op);
 	CHECK_EQ(poor_loop_check_sq_space_or_submit(&loop, entries), 0);
 	arm_nop(&loop, &recs[1].op);
@@ -40,31 +40,30 @@ static int test_log_sq_space(void)
 {
 	struct poor_loop loop;
 	struct rec recs[8];
-	size_t i;
 
 	logs = 0;
 	poor_loop_log_function_set(log_record);
 	loop_init(&loop, 4);
-	for (i = 0; i < ARRAY_SIZE(recs); i++)
-		rec_init(&recs[i], rec_complete);
-	for (i = 0; i < 3; i++)
-		arm_nop(&loop, &recs[i].op);
+	foreach_array_ref(recs, rec)
+		rec_init(rec, rec_complete);
+	foreach_array_ref(arrview_first(3, recs), rec)
+		arm_nop(&loop, &rec->op);
 	CHECK_EQ(poor_loop_check_sq_space_or_submit(&loop, 1), 0);
 	CHECK_EQ(logs, 0);
 	CHECK_EQ(poor_loop_check_sq_space_or_submit(&loop, 2), 0);
 	CHECK_EQ(logs, 1);
 	CHECK(logged_loop == &loop);
 	CHECK(!strcmp(logged, "SQ has 1 of 4 entries free, 2 needed: submitting"));
-	for (i = 0; i < 3; i++)
-		drain(&loop, &recs[i].op);
-	for (i = 3; i < 7; i++)
-		arm_nop(&loop, &recs[i].op);
+	foreach_array_ref(arrview_first(3, recs), rec)
+		drain(&loop, &rec->op);
+	foreach_array_ref(arrview(3, 4, recs), rec)
+		arm_nop(&loop, &rec->op);
 	CHECK_EQ(logs, 1);
 	arm_nop(&loop, &recs[7].op);
 	CHECK_EQ(logs, 2);
 	CHECK(!strcmp(logged, "SQ has 0 of 4 entries free, 1 needed: submitting"));
-	for (i = 3; i < ARRAY_SIZE(recs); i++)
-		drain(&loop, &recs[i].op);
+	foreach_array_ref(arrview_cfront(3, recs), rec)
+		drain(&loop, &rec->op);
 	poor_loop_log_function_set(nullptr);
 	poor_loop_exit(&loop);
 	sq_short(2);
@@ -97,9 +96,12 @@ static int test_log_thread(void)
 	return 0;
 }
 
-const struct test tests[] = {
+static const struct test tests[] = {
 	TEST(log_sq_space),
 	TEST(log_thread),
 };
 
-const size_t tests_count = ARRAY_SIZE(tests);
+int main(int argc, char **argv)
+{
+	return run_tests(array_ptr(argv, argc), tests);
+}

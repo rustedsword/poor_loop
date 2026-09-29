@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 
 #include <inttypes.h>
+#include <poor_array.h>
 #include <poor_loop.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,12 +25,12 @@ static int cmp_i64(const void *a, const void *b)
 
 static struct stats summarize(unsigned count, int64_t (*values)[count])
 {
-	qsort(*values, count, sizeof(**values), cmp_i64);
+	qsort(*values, count, ARRAY_ELEMENT_SIZE(values), cmp_i64);
 	return (struct stats){
-		.min = (*values)[0],
-		.p50 = (*values)[count / 2],
-		.p99 = (*values)[count * 99 / 100],
-		.max = (*values)[count - 1],
+		.min = *array_first_ref(values),
+		.p50 = arr(values)[count / 2],
+		.p99 = arr(values)[count * 99 / 100],
+		.max = *array_last_ref(values),
 	};
 }
 
@@ -66,24 +67,25 @@ static uint64_t arm_cost(struct poor_loop *loop, struct poor_loop_timer *spare, 
 
 static void bench_insert(struct poor_loop *loop, unsigned max_timers, unsigned rounds)
 {
-	struct poor_loop_timer *timers = calloc(max_timers, sizeof(*timers));
+	typeof(struct poor_loop_timer[max_timers]) *timers = calloc_array(timers);
 	struct poor_loop_timer spare = POOR_LOOP_TIMER_INIT(nothing);
 
 	puts("arm cost, nanoseconds per poor_loop_timer_arm:");
 	for (unsigned count = 1; count <= max_timers; count *= 8) {
 		uint64_t base = poor_loop_now() + 10 * NS_PER_SEC;
+		make_arrview_first(armed, count, timers);
 		uint64_t tail, head, median;
 
-		for (unsigned i = 0; i < count; i++) {
-			poor_loop_timer_init(&timers[i], nothing);
-			poor_loop_timer_arm(loop, &timers[i], base + i * NS_PER_MS);
+		foreach_array_index(armed, i) {
+			poor_loop_timer_init(&arr(armed)[i], nothing);
+			poor_loop_timer_arm(loop, &arr(armed)[i], base + i * NS_PER_MS);
 		}
 		tail = arm_cost(loop, &spare, base + count * NS_PER_MS, rounds);
 		head = arm_cost(loop, &spare, 1, rounds);
 		median = arm_cost(loop, &spare, base + count / 2 * NS_PER_MS + 1, rounds);
 		printf("  armed=%-4u tail=%" PRIu64 "ns head=%" PRIu64 "ns median=%" PRIu64 "ns\n", count, tail, head, median);
-		for (unsigned i = 0; i < count; i++)
-			poor_loop_timer_disarm(&timers[i]);
+		foreach_array_ref(armed, timer)
+			poor_loop_timer_disarm(timer);
 	}
 	free(timers);
 }
@@ -101,13 +103,13 @@ static void probe_fire(struct poor_loop *loop, struct poor_loop_timer *timer)
 
 static void bench_loop_timer(struct poor_loop *loop, uint64_t delay, unsigned count, int64_t (*errors)[count])
 {
-	for (unsigned i = 0; i < count; i++) {
+	foreach_array_ref(errors, error) {
 		struct probe probe = { .timer = POOR_LOOP_TIMER_INIT(probe_fire) };
 		uint64_t deadline = poor_loop_now() + delay;
 
 		poor_loop_timer_arm(loop, &probe.timer, deadline);
 		run(loop);
-		(*errors)[i] = (int64_t)(probe.fired - deadline);
+		*error = (int64_t)(probe.fired - deadline);
 	}
 }
 
@@ -115,7 +117,7 @@ static void bench_uring_abs(struct io_uring *ring, uint64_t delay, unsigned coun
 {
 	struct io_uring_cqe *cqe;
 
-	for (unsigned i = 0; i < count; i++) {
+	foreach_array_ref(errors, error) {
 		uint64_t deadline = poor_loop_now() + delay;
 		struct __kernel_timespec ts = {
 			.tv_sec = deadline / NS_PER_SEC,
@@ -124,7 +126,7 @@ static void bench_uring_abs(struct io_uring *ring, uint64_t delay, unsigned coun
 
 		io_uring_prep_timeout(io_uring_get_sqe(ring), &ts, 0, IORING_TIMEOUT_ABS);
 		io_uring_submit_and_wait(ring, 1);
-		(*errors)[i] = (int64_t)(poor_loop_now() - deadline);
+		*error = (int64_t)(poor_loop_now() - deadline);
 		if (!io_uring_peek_cqe(ring, &cqe))
 			io_uring_cqe_seen(ring, cqe);
 	}
@@ -132,7 +134,7 @@ static void bench_uring_abs(struct io_uring *ring, uint64_t delay, unsigned coun
 
 static void bench_nanosleep(uint64_t delay, unsigned count, int64_t (*errors)[count])
 {
-	for (unsigned i = 0; i < count; i++) {
+	foreach_array_ref(errors, error) {
 		uint64_t deadline = poor_loop_now() + delay;
 		struct timespec ts = {
 			.tv_sec = deadline / NS_PER_SEC,
@@ -140,13 +142,13 @@ static void bench_nanosleep(uint64_t delay, unsigned count, int64_t (*errors)[co
 		};
 
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr);
-		(*errors)[i] = (int64_t)(poor_loop_now() - deadline);
+		*error = (int64_t)(poor_loop_now() - deadline);
 	}
 }
 
 static void bench_latency(struct poor_loop *loop, uint64_t delay, unsigned samples)
 {
-	int64_t (*errors)[samples] = calloc(1, sizeof(*errors));
+	int64_t (*errors)[samples] = calloc_array(errors);
 	struct io_uring ring;
 
 	io_uring_queue_init(64, &ring, 0);
@@ -192,7 +194,7 @@ static bool check_order(struct poor_loop *loop)
 	};
 
 	fired = order = 0;
-	for (unsigned i = 0; i < 3; i++)
+	foreach_array_index(timers, i)
 		poor_loop_timer_arm(loop, &timers[i].timer, deadlines[i]);
 	poor_loop_timer_arm(loop, &timers[1].timer, base + 5 * NS_PER_MS);
 	run(loop);

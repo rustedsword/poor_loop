@@ -147,19 +147,18 @@ static int test_submit_retry(void)
 	struct poor_loop loop;
 	char buf[8];
 	int fds[2];
-	size_t i;
 
-	for (i = 0; i < ARRAY_SIZE(errors); i++) {
+	foreach_array_ref(errors, error) {
 		make_pipe(&fds);
 		loop_init(&loop, 8);
 		rec_init(&reader, rec_complete);
 		rec_init(&nop, stop_complete);
-		arm_read(&loop, &reader.op, fds[0], sizeof(buf), &buf);
+		arm_read(&loop, &reader.op, fds[0], buf);
 		CHECK_EQ(io_uring_submit(poor_loop_ring(&loop)), 1);
 		CHECK_EQ(write(fds[1], "x", 1), 1);
 		arm_nop(&loop, &nop.op);
 
-		submit_error = errors[i];
+		submit_error = *error;
 		submit_failures = INT_MAX;
 		drain(&loop, &reader.op);
 		CHECK_EQ(reader.res, 1);
@@ -186,7 +185,7 @@ static int test_stop(void)
 	loop_init(&loop, 8);
 	rec_init(&reader, rec_complete);
 	rec_init(&stopper, stop_complete);
-	arm_read(&loop, &reader.op, fds[0], sizeof(buf), &buf);
+	arm_read(&loop, &reader.op, fds[0], buf);
 	arm_nop(&loop, &stopper.op);
 	CHECK_EQ(poor_loop_run(&loop), 0);
 	CHECK_EQ(stopper.calls, 1);
@@ -249,7 +248,7 @@ static int test_eintr(void)
 	CHECK_EQ(sigaction(SIGALRM, &sa, &old), 0);
 	loop_init(&loop, 8);
 	rec_init(&rec, stop_complete);
-	arm_read(&loop, &rec.op, fds[0], sizeof(buf), &buf);
+	arm_read(&loop, &rec.op, fds[0], buf);
 	CHECK_EQ(io_uring_submit(poor_loop_ring(&loop)), 1);
 	set_alarm(20000);
 	CHECK_EQ(poor_loop_run(&loop), 0);
@@ -277,7 +276,7 @@ static int test_exit_pending(void)
 	make_pipe(&fds);
 	loop_init(&loop, 8);
 	rec_init(&rec, rec_complete);
-	arm_read(&loop, &rec.op, fds[0], sizeof(buf), &buf);
+	arm_read(&loop, &rec.op, fds[0], buf);
 	CHECK_EQ(io_uring_submit(poor_loop_ring(&loop)), 1);
 	poor_loop_exit(&loop);
 	CHECK_EQ(rec.calls, 0);
@@ -286,7 +285,7 @@ static int test_exit_pending(void)
 	return 0;
 }
 
-const struct test tests[] = {
+static const struct test tests[] = {
 	TEST(init_exit),
 	TEST(init_params),
 	TEST(init_errors),
@@ -298,4 +297,7 @@ const struct test tests[] = {
 	TEST(exit_pending),
 };
 
-const size_t tests_count = ARRAY_SIZE(tests);
+int main(int argc, char **argv)
+{
+	return run_tests(array_ptr(argv, argc), tests);
+}

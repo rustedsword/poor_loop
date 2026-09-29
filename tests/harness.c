@@ -56,8 +56,8 @@ void make_pipe(int (*fds)[2])
 
 void close_pipe(int (*fds)[2])
 {
-	CHECK_EQ(close((*fds)[0]), 0);
-	CHECK_EQ(close((*fds)[1]), 0);
+	foreach_array_ref(fds, fd)
+		CHECK_EQ(close(*fd), 0);
 }
 
 struct io_uring_sqe *get_sqe(struct poor_loop *loop, struct poor_loop_op *op)
@@ -74,25 +74,27 @@ void arm_nop(struct poor_loop *loop, struct poor_loop_op *op)
 	io_uring_prep_nop(get_sqe(loop, op));
 }
 
-void arm_read(struct poor_loop *loop, struct poor_loop_op *op, int fd, unsigned len, char (*buf)[len])
+void _arm_read(struct poor_loop *loop, struct poor_loop_op *op, int fd, size_t len, char (*buf)[len])
 {
 	io_uring_prep_read(get_sqe(loop, op), fd, *buf, len, 0);
 }
 
-static struct poor_loop_op **awaited;
 static size_t awaited_count;
+static struct poor_loop_op *(*awaited)[];
 
 static bool settled(void)
 {
-	for (size_t i = 0; i < awaited_count; i++)
-		if (awaited[i]->pending)
+	struct poor_loop_op *(*ops)[awaited_count] = awaited;
+
+	foreach_array_ref(ops, op)
+		if ((*op)->pending)
 			return false;
 	return true;
 }
 
 void drain_ops(struct poor_loop *loop, size_t count, struct poor_loop_op *(*ops)[count])
 {
-	awaited = *ops;
+	awaited = ops;
 	awaited_count = count;
 	if (!settled())
 		CHECK_EQ(poor_loop_run(loop), 0);
@@ -175,16 +177,14 @@ static int run_test(const struct test *test)
 	return ret;
 }
 
-[[noreturn]] static void usage(void)
+[[noreturn]] static void usage(size_t count, const struct test (*tests)[count])
 {
-	size_t i;
-
 	fprintf(stderr, "usage: test_loop MODE [TEST]\nmodes:");
-	for (i = 0; i < ARRAY_SIZE(modes); i++)
-		fprintf(stderr, " %s", modes[i].name);
+	foreach_array_ref(modes, m)
+		fprintf(stderr, " %s", m->name);
 	fprintf(stderr, "\ntests:");
-	for (i = 0; i < tests_count; i++)
-		fprintf(stderr, " %s", tests[i].name);
+	foreach_array_ref(tests, test)
+		fprintf(stderr, " %s", test->name);
 	fputc('\n', stderr);
 	exit(2);
 }
@@ -202,25 +202,24 @@ static int probe_mode(void)
 	return ret;
 }
 
-int main(int argc, char **argv)
+int _run_tests(size_t argc, char *(*argv)[argc], size_t count, const struct test (*tests)[count])
 {
 	const struct test *test = nullptr;
-	size_t i;
 	int ret;
 
 	if (argc < 2 || argc > 3)
-		usage();
-	for (i = 0; i < ARRAY_SIZE(modes); i++)
-		if (!strcmp(argv[1], modes[i].name))
-			mode = &modes[i];
+		usage(count, tests);
+	foreach_array_ref(modes, m)
+		if (!strcmp(arr(argv)[1], m->name))
+			mode = m;
 	if (!mode)
-		usage();
+		usage(count, tests);
 	if (argc == 3) {
-		for (i = 0; i < tests_count; i++)
-			if (!strcmp(argv[2], tests[i].name))
-				test = &tests[i];
+		foreach_array_ref(tests, t)
+			if (!strcmp(arr(argv)[2], t->name))
+				test = t;
 		if (!test)
-			usage();
+			usage(count, tests);
 	}
 
 	ret = probe_mode();
@@ -230,7 +229,7 @@ int main(int argc, char **argv)
 	}
 	if (test)
 		return run_test(test);
-	for (i = 0; i < tests_count; i++)
-		run_test(&tests[i]);
+	foreach_array_ref(tests, t)
+		run_test(t);
 	return 0;
 }

@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <poor_array.h>
 #include <poor_loop.h>
 #include <signal.h>
 #include <stdio.h>
@@ -175,17 +176,20 @@ static void client_flush(struct poor_loop *loop, struct client *c)
  * senders bursting in one loop iteration can still drop a healthy reader; any
  * bounded buffer has that limit.
  */
-static void client_send(struct poor_loop *loop, struct client *c, const char *data, size_t len)
+static void _client_send(struct poor_loop *loop, struct client *c, size_t len, const char (*data)[len])
 {
-	if (c->out_len + len > sizeof(c->out)) {
+	if (c->out_len + len > ARRAY_SIZE(c->out)) {
 		client_drop(loop, c);
 		return;
 	}
-	memcpy(c->out + c->out_len, data, len);
+	make_arrview(tail, c->out_len, len, c->out);
+	copy_array(tail, data);
 	c->out_len += len;
 	if (!c->send_op.pending)
 		client_flush(loop, c);
 }
+
+#define client_send(loop, c, data) _client_send(loop, c, ARRAY_SIZE(data), &auto_arr(data))
 
 /*
  * IRC-style flood control: every line costs LINE_COST_NS and a sender may run
@@ -194,17 +198,18 @@ static void client_send(struct poor_loop *loop, struct client *c, const char *da
  */
 static void client_line(struct poor_loop *loop, struct client *c)
 {
-	char msg[sizeof(c->nick) + 2 + sizeof(c->in) + 1];
+	char msg[ARRAY_SIZE(c->nick) + 2 + ARRAY_SIZE(c->in) + 1];
 	size_t n = c->in_len, len = c->nick_len + 2 + n + 1;
 	uint64_t now = poor_loop_now();
 
 	c->in_len = 0;
 	if (!n)
 		return;
+	make_arrview_first(line, n, c->in);
 	if (!c->has_nick) {
 		c->has_nick = true;
-		c->nick_len = n < sizeof(c->nick) ? n : sizeof(c->nick);
-		memcpy(c->nick, c->in, c->nick_len);
+		c->nick_len = n < ARRAY_SIZE(c->nick) ? n : ARRAY_SIZE(c->nick);
+		copy_array(c->nick, line);
 		return;
 	}
 	c->flood = (c->flood > now ? c->flood : now) + LINE_COST_NS;
@@ -212,13 +217,13 @@ static void client_line(struct poor_loop *loop, struct client *c)
 		client_drop(loop, c);
 		return;
 	}
-	memcpy(msg, c->nick, c->nick_len);
-	memcpy(msg + c->nick_len, ": ", 2);
-	memcpy(msg + c->nick_len + 2, c->in, n);
-	msg[len - 1] = '\n';
+	make_arrview_first(nick, c->nick_len, c->nick);
+	make_arrview_str(sep, ": ");
+	make_arrview_str(nl, "\n");
+	copy_arrays(msg, nick, sep, line, nl);
 	poor_list_foreach_safe(&clients, o)
 		if (o != c)
-			client_send(loop, o, msg, len);
+			client_send(loop, o, arrview_first(len, msg));
 }
 
 /*
@@ -226,18 +231,20 @@ static void client_line(struct poor_loop *loop, struct client *c)
  * (U+0080..U+009F, i.e. 0xc2 0x80..0x9f), which some terminals obey too. Long
  * lines are split, except the nick line, which is cut.
  */
-static void client_input(struct poor_loop *loop, struct client *c, const char *data, size_t len)
+static void _client_input(struct poor_loop *loop, struct client *c, size_t len, const char (*data)[len])
 {
 	unsigned char ch;
 
-	for (; len && client_linked(c); data++, len--) {
-		ch = *data;
+	foreach_array_ref(data, byte) {
+		if (!client_linked(c))
+			break;
+		ch = *byte;
 		if (ch == '\n') {
 			client_line(loop, c);
 		} else if (ch >= 0x80 && ch <= 0x9f && c->in_len && (unsigned char)c->in[c->in_len - 1] == 0xc2) {
 			c->in_len--;
 		} else if (!iscntrl(ch)) {
-			if (c->in_len == sizeof(c->in)) {
+			if (c->in_len == ARRAY_SIZE(c->in)) {
 				if (!c->has_nick)
 					continue;
 				client_line(loop, c);
@@ -246,6 +253,8 @@ static void client_input(struct poor_loop *loop, struct client *c, const char *d
 		}
 	}
 }
+
+#define client_input(loop, c, data) _client_input(loop, c, ARRAY_SIZE(data), &auto_arr(data))
 
 static void client_recv(struct poor_loop *loop, struct client *c)
 {
@@ -265,14 +274,15 @@ static void buf_recycle(unsigned id)
 static void on_send(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	struct client *c = container_of(op, struct client, send_op);
+	make_arrview_first(queued, c->out_len, c->out);
 
-	if (cqe->res < 0 || !client_linked(c)) {
+	if (cqe->res <= 0 || !client_linked(c)) {
 		client_drop(loop, c);
 		client_release(loop, c);
 		return;
 	}
+	array_remove_view(queued, arrview_first((size_t)cqe->res, queued));
 	c->out_len -= cqe->res;
-	memmove(c->out, c->out + cqe->res, c->out_len);
 	if (c->out_len)
 		client_flush(loop, c);
 }
@@ -285,7 +295,7 @@ static void on_recv(struct poor_loop *loop, struct poor_loop_op *op, const struc
 	if (cqe->flags & IORING_CQE_F_BUFFER) {
 		id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
 		if (cqe->res > 0 && client_linked(c))
-			client_input(loop, c, bufs[id], cqe->res);
+			client_input(loop, c, arrview_first((size_t)cqe->res, bufs[id]));
 		buf_recycle(id);
 	}
 	if (op->pending)
@@ -441,7 +451,7 @@ int main(int argc, char **argv)
 		fprintf(stderr, "io_uring_setup_buf_ring: %s\n", strerror(-ret));
 		return 1;
 	}
-	for (unsigned i = 0; i < BUF_COUNT; i++)
+	foreach_array_index(bufs, i)
 		buf_recycle(i);
 	ret = io_uring_register_files_sparse(poor_loop_ring(&loop), 1);
 	if (ret) {
