@@ -32,7 +32,7 @@ static void on_read(struct poor_loop *loop, struct poor_loop_op *op, const struc
 		return;
 	}
 	fwrite(buf, 1, cqe->res, stdout);
-	io_uring_prep_read(poor_loop_get_sqe_or_submit(loop, op), 0, buf, sizeof(buf), -1);
+	io_uring_prep_read_array(poor_loop_get_sqe_or_submit(loop, op), 0, buf, -1);
 }
 
 int main(void)
@@ -44,7 +44,7 @@ int main(void)
 
 	if (poor_loop_init(&loop, 64, &params))
 		return 1;
-	io_uring_prep_read(poor_loop_get_sqe_or_submit(&loop, &op), 0, buf, sizeof(buf), -1);
+	io_uring_prep_read_array(poor_loop_get_sqe_or_submit(&loop, &op), 0, buf, -1);
 	ret = poor_loop_run(&loop);
 	poor_loop_exit(&loop);
 	return ret != 0;

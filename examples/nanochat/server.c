@@ -169,7 +169,7 @@ static void client_release(struct poor_loop *loop, struct client *c)
 
 static void client_flush(struct poor_loop *loop, struct client *c)
 {
-	io_uring_prep_send(get_sqe(loop, &c->send_op), c->fd, c->out, c->out_len, MSG_NOSIGNAL);
+	io_uring_prep_send_array(get_sqe(loop, &c->send_op), c->fd, arrview_first(c->out_len, c->out), MSG_NOSIGNAL);
 }
 
 /*
@@ -266,7 +266,7 @@ static void client_recv(struct poor_loop *loop, struct client *c)
 
 static void buf_recycle(unsigned id)
 {
-	io_uring_buf_ring_add(buf_ring, bufs[id], BUF_SIZE, id, io_uring_buf_ring_mask(BUF_COUNT), 0);
+	io_uring_buf_ring_add_array(buf_ring, bufs[id], id, io_uring_buf_ring_mask(BUF_COUNT), 0);
 	io_uring_buf_ring_advance(buf_ring, 1);
 }
 
@@ -389,7 +389,7 @@ static void listen_start(struct poor_loop *loop)
 	io_uring_prep_socket_direct(sqe, AF_INET, SOCK_STREAM, 0, LISTEN_SLOT, 0);
 	sqe->flags |= IOSQE_IO_LINK;
 	sqe = get_sqe(loop, &steps[1].op);
-	io_uring_prep_cmd_sock(sqe, SOCKET_URING_OP_SETSOCKOPT, LISTEN_SLOT, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+	io_uring_prep_cmd_sock_array(sqe, SOCKET_URING_OP_SETSOCKOPT, LISTEN_SLOT, SOL_SOCKET, SO_REUSEADDR, array_ptr(&one));
 	sqe->flags |= IOSQE_FIXED_FILE | IOSQE_IO_LINK;
 	sqe = get_sqe(loop, &steps[2].op);
 	io_uring_prep_bind(sqe, LISTEN_SLOT, (struct sockaddr *)&addr, sizeof(addr));
@@ -458,7 +458,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	listen_start(&loop);
-	io_uring_prep_read(get_sqe(&loop, &signal_op), signal_fd, &siginfo, sizeof(siginfo), -1);
+	io_uring_prep_read_array(get_sqe(&loop, &signal_op), signal_fd, array_ptr(&siginfo), -1);
 	ret = poor_loop_run(&loop);
 	if (ret || status)
 		return 1;

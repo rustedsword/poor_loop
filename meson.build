@@ -37,6 +37,7 @@ install_headers(
   'include/poor_loop_log.h',
   'include/poor_loop_op.h',
   'include/poor_loop_timer.h',
+  'include/poor_loop_uring_array.h',
 )
 
 import('pkgconfig').generate(

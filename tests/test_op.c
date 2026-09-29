@@ -296,7 +296,7 @@ static int test_pipe_io(void)
 	rec_init(&reader, rec_complete);
 	rec_init(&writer, rec_complete);
 	arm_read(&loop, &reader.op, fds[0], buf);
-	io_uring_prep_write(get_sqe(&loop, &writer.op), fds[1], msg, ARRAY_SIZE_BYTES(msg), 0);
+	io_uring_prep_write_array(get_sqe(&loop, &writer.op), fds[1], msg, 0);
 	drain(&loop, &reader.op, &writer.op);
 	CHECK_EQ(writer.calls, 1);
 	CHECK_EQ(writer.res, ARRAY_SIZE_BYTES(msg));
@@ -322,7 +322,7 @@ static int test_linked_timeout(void)
 	rec_init(&reader, rec_complete);
 	rec_init(&timer, rec_complete);
 	sqe = get_sqe(&loop, &reader.op);
-	io_uring_prep_read(sqe, fds[0], buf, ARRAY_SIZE_BYTES(buf), 0);
+	io_uring_prep_read_array(sqe, fds[0], buf, 0);
 	sqe->flags |= IOSQE_IO_LINK;
 	io_uring_prep_link_timeout(get_sqe(&loop, &timer.op), &ts, 0);
 	drain(&loop, &reader.op, &timer.op);
@@ -349,7 +349,7 @@ static int test_linked_sq_full(void)
 		arm_nop(&loop, &rec->op);
 	CHECK_EQ(poor_loop_check_sq_space_or_submit(&loop, 3), 0);
 	sqe = get_sqe(&loop, &recs[3].op);
-	io_uring_prep_read(sqe, -1, buf, ARRAY_SIZE_BYTES(buf), 0);
+	io_uring_prep_read_array(sqe, -1, buf, 0);
 	sqe->flags |= IOSQE_IO_LINK;
 	sqe = get_sqe(&loop, &recs[4].op);
 	io_uring_prep_nop(sqe);

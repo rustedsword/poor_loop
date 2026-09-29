@@ -61,7 +61,7 @@ static void relay_read(struct poor_loop *loop, struct relay *r)
 {
 	struct io_uring_sqe *sqe = get_sqe(loop, &r->read_op);
 
-	io_uring_prep_read(sqe, r->from, r->buf, ARRAY_SIZE_BYTES(r->buf), -1);
+	io_uring_prep_read_array(sqe, r->from, r->buf, -1);
 	sqe->flags |= IOSQE_FIXED_FILE;
 }
 
@@ -70,7 +70,7 @@ static void relay_write(struct poor_loop *loop, struct relay *r)
 	struct io_uring_sqe *sqe = get_sqe(loop, &r->write_op);
 	make_arrview(unsent, r->off, r->len - r->off, r->buf);
 
-	io_uring_prep_write(sqe, r->to, *unsent, ARRAY_SIZE_BYTES(unsent), -1);
+	io_uring_prep_write_array(sqe, r->to, unsent, -1);
 	sqe->flags |= IOSQE_FIXED_FILE;
 }
 
@@ -161,7 +161,7 @@ int main(int argc, char **argv)
 		printerrln("poor_loop_init: ", strerror(-ret));
 		return 1;
 	}
-	ret = io_uring_register_files(poor_loop_ring(&loop), files, ARRAY_SIZE(files));
+	ret = io_uring_register_files_array(poor_loop_ring(&loop), files);
 	if (ret) {
 		printerrln("io_uring_register_files: ", strerror(-ret));
 		return 1;

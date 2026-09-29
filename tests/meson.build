@@ -6,7 +6,7 @@ harness = static_library(
   dependencies: poor_loop_dep,
 )
 
-foreach component : ['log', 'loop', 'op', 'timer']
+foreach component : ['log', 'loop', 'op', 'timer', 'uring_array']
   source = 'test_' + component + '.c'
   exe = executable(
     'test_' + component,

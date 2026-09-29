@@ -87,7 +87,7 @@ void arm_nop(struct poor_loop *loop, struct poor_loop_op *op)
 
 void _arm_read(struct poor_loop *loop, struct poor_loop_op *op, int fd, size_t len, char (*buf)[len])
 {
-	io_uring_prep_read(get_sqe(loop, op), fd, *buf, len, 0);
+	io_uring_prep_read_array(get_sqe(loop, op), fd, buf, 0);
 }
 
 static size_t awaited_count;

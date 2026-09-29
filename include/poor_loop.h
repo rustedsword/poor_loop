@@ -7,6 +7,7 @@
 #include "poor_loop_log.h"
 #include "poor_loop_op.h"
 #include "poor_loop_timer.h"
+#include "poor_loop_uring_array.h"
 
 #ifdef __cplusplus
 extern "C" {
