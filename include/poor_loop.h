@@ -1,18 +1,20 @@
 /* SPDX-License-Identifier: MIT */
-#ifndef CHIO_LOOP_H
-#define CHIO_LOOP_H
+#ifndef POOR_LOOP_H
+#define POOR_LOOP_H
 
 #include <liburing.h>
 
-#include "chio_timer.h"
+#include "poor_loop_log.h"
+#include "poor_loop_op.h"
+#include "poor_loop_timer.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-struct chio_loop {
+struct poor_loop {
 	struct io_uring ring;
-	chio_timer_list timers;
+	poor_loop_timer_list timers;
 	bool stop;
 };
 
@@ -21,7 +23,7 @@ struct chio_loop {
  *
  * The loop owns the CQ, so never consume CQEs.
  */
-static inline struct io_uring *chio_loop_ring(struct chio_loop *loop)
+static inline struct io_uring *poor_loop_ring(struct poor_loop *loop)
 {
 	return &loop->ring;
 }
@@ -32,7 +34,7 @@ static inline struct io_uring *chio_loop_ring(struct chio_loop *loop)
  * 'params' is passed to io_uring_queue_init_params(), which writes the actual
  * ring sizes back into it. Returns 0 on success, or -errno on error.
  */
-[[nodiscard]] int chio_loop_init(struct chio_loop *loop, unsigned entries,
+[[nodiscard]] int poor_loop_init(struct poor_loop *loop, unsigned entries,
 				 struct io_uring_params *params);
 
 /*
@@ -44,25 +46,25 @@ static inline struct io_uring *chio_loop_ring(struct chio_loop *loop)
  * complete(): a running request may still use its buffers after this returns,
  * and a queued close may leave its fd open.
  */
-void chio_loop_exit(struct chio_loop *loop);
+void poor_loop_exit(struct poor_loop *loop);
 
 /*
- * Run the event loop until chio_loop_stop() is called.
+ * Run the event loop until poor_loop_stop() is called.
  *
- * Callbacks must not call chio_loop_run() or chio_loop_exit(). CQEs with zero
+ * Callbacks must not call poor_loop_run() or poor_loop_exit(). CQEs with zero
  * user_data are ignored.
  *
  * Returns 0 on normal exit, or -errno if waiting failed.
  */
-[[nodiscard]] int chio_loop_run(struct chio_loop *loop);
+[[nodiscard]] int poor_loop_run(struct poor_loop *loop);
 
 /*
  * Stop the event loop.
  *
- * If called from a callback, chio_loop_run() will exit after the current
+ * If called from a callback, poor_loop_run() will exit after the current
  * iteration finishes.
  */
-void chio_loop_stop(struct chio_loop *loop);
+void poor_loop_stop(struct poor_loop *loop);
 
 #ifdef __cplusplus
 }

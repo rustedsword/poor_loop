@@ -2,7 +2,7 @@
 #define _GNU_SOURCE
 
 #include <arpa/inet.h>
-#include <chioloop.h>
+#include <poor_loop.h>
 #include <errno.h>
 #include <signal.h>
 #include <stdio.h>
@@ -12,8 +12,8 @@
 
 /* Copies fixed file 'from' to 'to'. */
 struct relay {
-	struct chio_op read_op;
-	struct chio_op write_op;
+	struct poor_loop_op read_op;
+	struct poor_loop_op write_op;
 	int from, to;
 	size_t len, off;
 	char buf[4096];
@@ -25,18 +25,19 @@ static struct relay up, down;
 static struct sockaddr_in addr = { .sin_family = AF_INET };
 static int status;
 
-static struct io_uring_sqe *get_sqe(struct chio_loop *loop, struct chio_op *op)
+static struct io_uring_sqe *get_sqe(struct poor_loop *loop,
+				    struct poor_loop_op *op)
 {
-	struct io_uring_sqe *sqe = chio_get_sqe_or_submit(loop, op);
+	struct io_uring_sqe *sqe = poor_loop_get_sqe_or_submit(loop, op);
 
 	if (!sqe) {
-		perror("chio_get_sqe_or_submit");
+		perror("poor_loop_get_sqe_or_submit");
 		exit(1);
 	}
 	return sqe;
 }
 
-static bool check(struct chio_loop *loop, const struct io_uring_cqe *cqe,
+static bool check(struct poor_loop *loop, const struct io_uring_cqe *cqe,
 		  const char *what)
 {
 	if (cqe->res >= 0)
@@ -44,7 +45,7 @@ static bool check(struct chio_loop *loop, const struct io_uring_cqe *cqe,
 	if (cqe->res != -ECANCELED)
 		fprintf(stderr, "%s: %s\n", what, strerror(-cqe->res));
 	status = 1;
-	chio_loop_stop(loop);
+	poor_loop_stop(loop);
 	return false;
 }
 
@@ -56,7 +57,7 @@ static int parse_port(const char *s)
 	return *s && !*end && port && port <= 65535 ? (int)port : -1;
 }
 
-static void relay_read(struct chio_loop *loop, struct relay *r)
+static void relay_read(struct poor_loop *loop, struct relay *r)
 {
 	struct io_uring_sqe *sqe = get_sqe(loop, &r->read_op);
 
@@ -64,7 +65,7 @@ static void relay_read(struct chio_loop *loop, struct relay *r)
 	sqe->flags |= IOSQE_FIXED_FILE;
 }
 
-static void relay_write(struct chio_loop *loop, struct relay *r)
+static void relay_write(struct poor_loop *loop, struct relay *r)
 {
 	struct io_uring_sqe *sqe = get_sqe(loop, &r->write_op);
 
@@ -72,7 +73,7 @@ static void relay_write(struct chio_loop *loop, struct relay *r)
 	sqe->flags |= IOSQE_FIXED_FILE;
 }
 
-static void on_read(struct chio_loop *loop, struct chio_op *op,
+static void on_read(struct poor_loop *loop, struct poor_loop_op *op,
 		    const struct io_uring_cqe *cqe)
 {
 	struct relay *r = container_of(op, struct relay, read_op);
@@ -84,7 +85,7 @@ static void on_read(struct chio_loop *loop, struct chio_op *op,
 			fputs("server closed the connection\n", stderr);
 			status = 1;
 		}
-		chio_loop_stop(loop);
+		poor_loop_stop(loop);
 		return;
 	}
 	r->len = cqe->res;
@@ -92,7 +93,7 @@ static void on_read(struct chio_loop *loop, struct chio_op *op,
 	relay_write(loop, r);
 }
 
-static void on_write(struct chio_loop *loop, struct chio_op *op,
+static void on_write(struct poor_loop *loop, struct poor_loop_op *op,
 		     const struct io_uring_cqe *cqe)
 {
 	struct relay *r = container_of(op, struct relay, write_op);
@@ -106,7 +107,7 @@ static void on_write(struct chio_loop *loop, struct chio_op *op,
 		relay_read(loop, r);
 }
 
-static void on_connect(struct chio_loop *loop, struct chio_op *,
+static void on_connect(struct poor_loop *loop, struct poor_loop_op *,
 		       const struct io_uring_cqe *cqe)
 {
 	if (!check(loop, cqe, "connect"))
@@ -115,21 +116,21 @@ static void on_connect(struct chio_loop *loop, struct chio_op *,
 	relay_read(loop, &down);
 }
 
-static void on_socket(struct chio_loop *loop, struct chio_op *,
+static void on_socket(struct poor_loop *loop, struct poor_loop_op *,
 		      const struct io_uring_cqe *cqe)
 {
 	check(loop, cqe, "socket");
 }
 
-static void connect_start(struct chio_loop *loop)
+static void connect_start(struct poor_loop *loop)
 {
-	static struct chio_op socket_op = CHIO_OP_INIT(on_socket);
-	static struct chio_op connect_op = CHIO_OP_INIT(on_connect);
+	static struct poor_loop_op socket_op = POOR_LOOP_OP_INIT(on_socket);
+	static struct poor_loop_op connect_op = POOR_LOOP_OP_INIT(on_connect);
 	struct io_uring_sqe *sqe;
-	int ret = chio_check_sq_space_or_submit(loop, 2);
+	int ret = poor_loop_check_sq_space_or_submit(loop, 2);
 
 	if (ret) {
-		fprintf(stderr, "chio_check_sq_space_or_submit: %s\n",
+		fprintf(stderr, "poor_loop_check_sq_space_or_submit: %s\n",
 			strerror(-ret));
 		exit(1);
 	}
@@ -145,7 +146,7 @@ static void connect_start(struct chio_loop *loop)
 int main(int argc, char **argv)
 {
 	struct io_uring_params params = {};
-	struct chio_loop loop;
+	struct poor_loop loop;
 	int port = argc > 3 ? parse_port(argv[3]) : 7777;
 	int ret;
 
@@ -160,26 +161,26 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	signal(SIGPIPE, SIG_IGN);
-	ret = chio_loop_init(&loop, 16, &params);
+	ret = poor_loop_init(&loop, 16, &params);
 	if (ret) {
-		fprintf(stderr, "chio_loop_init: %s\n", strerror(-ret));
+		fprintf(stderr, "poor_loop_init: %s\n", strerror(-ret));
 		return 1;
 	}
-	ret = io_uring_register_files(chio_loop_ring(&loop),
+	ret = io_uring_register_files(poor_loop_ring(&loop),
 				      (const int[]){ 0, 1, -1 }, 3);
 	if (ret) {
 		fprintf(stderr, "io_uring_register_files: %s\n", strerror(-ret));
 		return 1;
 	}
 
-	up = (struct relay){ .read_op = CHIO_OP_INIT(on_read),
-			     .write_op = CHIO_OP_INIT(on_write),
+	up = (struct relay){ .read_op = POOR_LOOP_OP_INIT(on_read),
+			     .write_op = POOR_LOOP_OP_INIT(on_write),
 			     .from = STDIN_SLOT, .to = SOCK_SLOT };
 	up.len = snprintf(up.buf, sizeof(up.buf), "%.32s\n", argv[1]);
-	down = (struct relay){ .read_op = CHIO_OP_INIT(on_read),
-			       .write_op = CHIO_OP_INIT(on_write),
+	down = (struct relay){ .read_op = POOR_LOOP_OP_INIT(on_read),
+			       .write_op = POOR_LOOP_OP_INIT(on_write),
 			       .from = SOCK_SLOT, .to = STDOUT_SLOT };
 	connect_start(&loop);
-	ret = chio_loop_run(&loop);
+	ret = poor_loop_run(&loop);
 	return ret || status;
 }

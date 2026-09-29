@@ -3,12 +3,12 @@
 
 #include "internal.h"
 
-void chio_timer_arm(struct chio_loop *loop, struct chio_timer *timer,
-		    uint64_t deadline)
+void poor_loop_timer_arm(struct poor_loop *loop, struct poor_loop_timer *timer,
+			 uint64_t deadline)
 {
-	struct chio_timer *at;
+	struct poor_loop_timer *at;
 
-	if (chio_timer_armed(timer))
+	if (poor_loop_timer_armed(timer))
 		poor_list_node_remove(&timer->link);
 	timer->deadline = deadline;
 	at = poor_list_first(&loop->timers);
@@ -22,30 +22,31 @@ void chio_timer_arm(struct chio_loop *loop, struct chio_timer *timer,
 	poor_list_insert_after(&loop->timers, at, timer);
 }
 
-bool chio_timers_timeout(struct chio_loop *loop, struct __kernel_timespec *ts)
+bool poor_loop_timers_timeout(struct poor_loop *loop,
+			      struct __kernel_timespec *ts)
 {
-	struct chio_timer *first = poor_list_first(&loop->timers);
+	struct poor_loop_timer *first = poor_list_first(&loop->timers);
 	uint64_t deadline, now, left;
 
 	if (!first)
 		return false;
 	deadline = first->deadline;
-	now = chio_now();
+	now = poor_loop_now();
 	left = deadline > now ? deadline - now : 0;
 	ts->tv_sec = left / 1'000'000'000;
 	ts->tv_nsec = left % 1'000'000'000;
 	return true;
 }
 
-void chio_timers_expire(struct chio_loop *loop)
+void poor_loop_timers_expire(struct poor_loop *loop)
 {
-	chio_timer_list due = POOR_LIST_INIT(due);
-	struct chio_timer *timer;
+	poor_loop_timer_list due = POOR_LIST_INIT(due);
+	struct poor_loop_timer *timer;
 	uint64_t now;
 
 	if (poor_list_empty(&loop->timers))
 		return;
-	now = chio_now();
+	now = poor_loop_now();
 	while ((timer = poor_list_first(&loop->timers))) {
 		if (timer->deadline > now)
 			break;
@@ -53,7 +54,7 @@ void chio_timers_expire(struct chio_loop *loop)
 		poor_list_append(&due, timer);
 	}
 	while ((timer = poor_list_first(&due))) {
-		chio_timer_disarm(timer);
+		poor_loop_timer_disarm(timer);
 		timer->fire(loop, timer);
 	}
 }

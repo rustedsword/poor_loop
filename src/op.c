@@ -5,15 +5,16 @@
 
 #include "internal.h"
 
-int chio_check_sq_space_or_submit(struct chio_loop *loop, unsigned n)
+int poor_loop_check_sq_space_or_submit(struct poor_loop *loop, unsigned n)
 {
 	unsigned space = io_uring_sq_space_left(&loop->ring);
 	int ret;
 
 	if (uring_likely(space >= n))
 		return 0;
-	chio_log(loop, "SQ has %u of %u entries free, %u needed: submitting",
-		 space, loop->ring.sq.ring_entries, n);
+	poor_loop_log(loop,
+		      "SQ has %u of %u entries free, %u needed: submitting",
+		      space, loop->ring.sq.ring_entries, n);
 	do {
 		ret = io_uring_submit(&loop->ring);
 		if (ret >= 0)
@@ -24,7 +25,8 @@ int chio_check_sq_space_or_submit(struct chio_loop *loop, unsigned n)
 	return 0;
 }
 
-struct io_uring_sqe *chio_get_sqe(struct chio_loop *loop, struct chio_op *op)
+struct io_uring_sqe *poor_loop_get_sqe(struct poor_loop *loop,
+				       struct poor_loop_op *op)
 {
 	struct io_uring_sqe *sqe;
 
@@ -42,7 +44,7 @@ struct io_uring_sqe *chio_get_sqe(struct chio_loop *loop, struct chio_op *op)
 	return sqe;
 }
 
-struct io_uring_sqe *chio_get_untracked_sqe(struct chio_loop *loop)
+struct io_uring_sqe *poor_loop_get_untracked_sqe(struct poor_loop *loop)
 {
 	struct io_uring_sqe *sqe = io_uring_get_sqe(&loop->ring);
 
@@ -54,42 +56,43 @@ struct io_uring_sqe *chio_get_untracked_sqe(struct chio_loop *loop)
 	return sqe;
 }
 
-struct io_uring_sqe *chio_get_untracked_sqe_or_submit(struct chio_loop *loop)
+struct io_uring_sqe *
+poor_loop_get_untracked_sqe_or_submit(struct poor_loop *loop)
 {
-	struct io_uring_sqe *sqe = chio_get_untracked_sqe(loop);
+	struct io_uring_sqe *sqe = poor_loop_get_untracked_sqe(loop);
 	int ret;
 
 	if (uring_likely(sqe))
 		return sqe;
-	ret = chio_check_sq_space_or_submit(loop, 1);
+	ret = poor_loop_check_sq_space_or_submit(loop, 1);
 	if (ret) {
 		errno = -ret;
 		return nullptr;
 	}
-	return chio_get_untracked_sqe(loop);
+	return poor_loop_get_untracked_sqe(loop);
 }
 
-struct io_uring_sqe *chio_get_sqe_or_submit(struct chio_loop *loop,
-					    struct chio_op *op)
+struct io_uring_sqe *poor_loop_get_sqe_or_submit(struct poor_loop *loop,
+						 struct poor_loop_op *op)
 {
-	struct io_uring_sqe *sqe = chio_get_sqe(loop, op);
+	struct io_uring_sqe *sqe = poor_loop_get_sqe(loop, op);
 	int ret;
 
 	if (uring_likely(sqe) || errno != EAGAIN)
 		return sqe;
-	ret = chio_check_sq_space_or_submit(loop, 1);
+	ret = poor_loop_check_sq_space_or_submit(loop, 1);
 	if (ret) {
 		errno = -ret;
 		return nullptr;
 	}
-	return chio_get_sqe(loop, op);
+	return poor_loop_get_sqe(loop, op);
 }
 
-void chio_ops_dispatch(struct chio_loop *loop)
+void poor_loop_ops_dispatch(struct poor_loop *loop)
 {
 	unsigned budget = io_uring_cq_ready(&loop->ring);
 	struct io_uring_cqe *cqe;
-	struct chio_op *op;
+	struct poor_loop_op *op;
 
 	for (; budget && !io_uring_peek_cqe(&loop->ring, &cqe); budget--) {
 		op = io_uring_cqe_get_data(cqe);

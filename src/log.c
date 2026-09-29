@@ -3,14 +3,14 @@
 
 #include "internal.h"
 
-static thread_local chio_log_fn *log_fn;
+static thread_local poor_loop_log_fn *log_fn;
 
-void chio_log_function_set(chio_log_fn *fn)
+void poor_loop_log_function_set(poor_loop_log_fn *fn)
 {
 	log_fn = fn;
 }
 
-void chio_log(struct chio_loop *loop, const char *fmt, ...)
+void poor_loop_log(struct poor_loop *loop, const char *fmt, ...)
 {
 	va_list ap;
 

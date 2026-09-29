@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #define _GNU_SOURCE
 
-#include <chioloop.h>
+#include <poor_loop.h>
 #include <ctype.h>
 #include <errno.h>
 #include <netinet/in.h>
@@ -18,8 +18,8 @@
  */
 struct client {
 	struct poor_list_node link;
-	struct chio_op recv_op;
-	struct chio_op send_op;
+	struct poor_loop_op recv_op;
+	struct poor_loop_op send_op;
 	int fd;
 	bool has_nick;
 	uint64_t flood;
@@ -32,7 +32,7 @@ struct client {
 poor_list_define(client_list, struct client, link);
 
 struct step {
-	struct chio_op op;
+	struct poor_loop_op op;
 	const char *name;
 };
 
@@ -53,40 +53,41 @@ static unsigned nclients;
 static int one = 1, signal_fd, status;
 static bool stopping;
 
-static void on_accept(struct chio_loop *loop, struct chio_op *op,
+static void on_accept(struct poor_loop *loop, struct poor_loop_op *op,
 		      const struct io_uring_cqe *cqe);
 
-static struct chio_op accept_op = CHIO_OP_INIT(on_accept);
+static struct poor_loop_op accept_op = POOR_LOOP_OP_INIT(on_accept);
 
-static struct io_uring_sqe *get_sqe(struct chio_loop *loop, struct chio_op *op)
+static struct io_uring_sqe *get_sqe(struct poor_loop *loop,
+				    struct poor_loop_op *op)
 {
-	struct io_uring_sqe *sqe = chio_get_sqe_or_submit(loop, op);
+	struct io_uring_sqe *sqe = poor_loop_get_sqe_or_submit(loop, op);
 
 	if (!sqe) {
-		perror("chio_get_sqe_or_submit");
+		perror("poor_loop_get_sqe_or_submit");
 		exit(1);
 	}
 	return sqe;
 }
 
-static void reserve(struct chio_loop *loop, unsigned n)
+static void reserve(struct poor_loop *loop, unsigned n)
 {
-	int ret = chio_check_sq_space_or_submit(loop, n);
+	int ret = poor_loop_check_sq_space_or_submit(loop, n);
 
 	if (ret) {
-		fprintf(stderr, "chio_check_sq_space_or_submit: %s\n",
+		fprintf(stderr, "poor_loop_check_sq_space_or_submit: %s\n",
 			strerror(-ret));
 		exit(1);
 	}
 }
 
-static void fd_close(struct chio_loop *loop, int fd)
+static void fd_close(struct poor_loop *loop, int fd)
 {
 	reserve(loop, 1);
-	io_uring_prep_close(chio_get_untracked_sqe(loop), fd);
+	io_uring_prep_close(poor_loop_get_untracked_sqe(loop), fd);
 }
 
-static bool check(struct chio_loop *loop, const struct io_uring_cqe *cqe,
+static bool check(struct poor_loop *loop, const struct io_uring_cqe *cqe,
 		  const char *what)
 {
 	if (cqe->res >= 0)
@@ -94,7 +95,7 @@ static bool check(struct chio_loop *loop, const struct io_uring_cqe *cqe,
 	if (cqe->res != -ECANCELED)
 		fprintf(stderr, "%s: %s\n", what, strerror(-cqe->res));
 	status = 1;
-	chio_loop_stop(loop);
+	poor_loop_stop(loop);
 	return false;
 }
 
@@ -122,7 +123,7 @@ static void client_unlink(struct client *c)
  * them; the shutdown does. The hard link runs close even if shutdown fails,
  * e.g. with ENOTCONN after a reset.
  */
-static void client_drop(struct chio_loop *loop, struct client *c)
+static void client_drop(struct poor_loop *loop, struct client *c)
 {
 	struct io_uring_sqe *sqe;
 
@@ -130,25 +131,25 @@ static void client_drop(struct chio_loop *loop, struct client *c)
 		return;
 	client_unlink(c);
 	reserve(loop, 2);
-	sqe = chio_get_untracked_sqe(loop);
+	sqe = poor_loop_get_untracked_sqe(loop);
 	io_uring_prep_shutdown(sqe, c->fd, SHUT_RDWR);
 	sqe->flags |= IOSQE_IO_HARDLINK;
-	io_uring_prep_close(chio_get_untracked_sqe(loop), c->fd);
+	io_uring_prep_close(poor_loop_get_untracked_sqe(loop), c->fd);
 }
 
-static void on_drained(struct chio_loop *loop, struct chio_op *,
+static void on_drained(struct poor_loop *loop, struct poor_loop_op *,
 		       const struct io_uring_cqe *)
 {
-	chio_loop_stop(loop);
+	poor_loop_stop(loop);
 }
 
 /*
  * Once all clients are freed and the accept is gone, only untracked requests
  * can be left. A drained NOP completes after all of them.
  */
-static void shutdown_finish(struct chio_loop *loop)
+static void shutdown_finish(struct poor_loop *loop)
 {
-	static struct chio_op drain_op = CHIO_OP_INIT(on_drained);
+	static struct poor_loop_op drain_op = POOR_LOOP_OP_INIT(on_drained);
 	struct io_uring_sqe *sqe;
 
 	if (!stopping || nclients || accept_op.pending)
@@ -159,7 +160,7 @@ static void shutdown_finish(struct chio_loop *loop)
 }
 
 /* Only called at the end of a final recv or send completion. */
-static void client_release(struct chio_loop *loop, struct client *c)
+static void client_release(struct poor_loop *loop, struct client *c)
 {
 	if (c->recv_op.pending || c->send_op.pending)
 		return;
@@ -168,7 +169,7 @@ static void client_release(struct chio_loop *loop, struct client *c)
 	shutdown_finish(loop);
 }
 
-static void client_flush(struct chio_loop *loop, struct client *c)
+static void client_flush(struct poor_loop *loop, struct client *c)
 {
 	io_uring_prep_send(get_sqe(loop, &c->send_op), c->fd, c->out,
 			   c->out_len, MSG_NOSIGNAL);
@@ -179,7 +180,7 @@ static void client_flush(struct chio_loop *loop, struct client *c)
  * senders bursting in one loop iteration can still drop a healthy reader; any
  * bounded buffer has that limit.
  */
-static void client_send(struct chio_loop *loop, struct client *c,
+static void client_send(struct poor_loop *loop, struct client *c,
 			const char *data, size_t len)
 {
 	if (c->out_len + len > sizeof(c->out)) {
@@ -197,11 +198,11 @@ static void client_send(struct chio_loop *loop, struct client *c,
  * at most FLOOD_BURST_NS ahead of now. Output only drains between loop
  * iterations, so this bounds what one sender can queue for each reader.
  */
-static void client_line(struct chio_loop *loop, struct client *c)
+static void client_line(struct poor_loop *loop, struct client *c)
 {
 	char msg[sizeof(c->nick) + 2 + sizeof(c->in) + 1];
 	size_t n = c->in_len, len = c->nick_len + 2 + n + 1;
-	uint64_t now = chio_now();
+	uint64_t now = poor_loop_now();
 
 	c->in_len = 0;
 	if (!c->has_nick) {
@@ -231,7 +232,7 @@ static void client_line(struct chio_loop *loop, struct client *c)
  * (U+0080..U+009F, i.e. 0xc2 0x80..0x9f), which some terminals obey too. Long
  * lines are split, except the nick line, which is cut.
  */
-static void client_input(struct chio_loop *loop, struct client *c,
+static void client_input(struct poor_loop *loop, struct client *c,
 			 const char *data, size_t len)
 {
 	unsigned char ch;
@@ -254,7 +255,7 @@ static void client_input(struct chio_loop *loop, struct client *c,
 	}
 }
 
-static void client_recv(struct chio_loop *loop, struct client *c)
+static void client_recv(struct poor_loop *loop, struct client *c)
 {
 	struct io_uring_sqe *sqe = get_sqe(loop, &c->recv_op);
 
@@ -270,7 +271,7 @@ static void buf_recycle(unsigned id)
 	io_uring_buf_ring_advance(buf_ring, 1);
 }
 
-static void on_send(struct chio_loop *loop, struct chio_op *op,
+static void on_send(struct poor_loop *loop, struct poor_loop_op *op,
 		    const struct io_uring_cqe *cqe)
 {
 	struct client *c = container_of(op, struct client, send_op);
@@ -286,7 +287,7 @@ static void on_send(struct chio_loop *loop, struct chio_op *op,
 		client_flush(loop, c);
 }
 
-static void on_recv(struct chio_loop *loop, struct chio_op *op,
+static void on_recv(struct poor_loop *loop, struct poor_loop_op *op,
 		    const struct io_uring_cqe *cqe)
 {
 	struct client *c = container_of(op, struct client, recv_op);
@@ -308,7 +309,7 @@ static void on_recv(struct chio_loop *loop, struct chio_op *op,
 	client_release(loop, c);
 }
 
-static void accept_arm(struct chio_loop *loop, struct chio_op *op)
+static void accept_arm(struct poor_loop *loop, struct poor_loop_op *op)
 {
 	struct io_uring_sqe *sqe = get_sqe(loop, op);
 
@@ -316,19 +317,20 @@ static void accept_arm(struct chio_loop *loop, struct chio_op *op)
 	sqe->flags |= IOSQE_FIXED_FILE;
 }
 
-static void on_accept_retry(struct chio_loop *loop, struct chio_timer *)
+static void on_accept_retry(struct poor_loop *loop, struct poor_loop_timer *)
 {
 	accept_arm(loop, &accept_op);
 }
 
-static struct chio_timer accept_timer = CHIO_TIMER_INIT(on_accept_retry);
+static struct poor_loop_timer accept_timer =
+	POOR_LOOP_TIMER_INIT(on_accept_retry);
 
 /*
  * -ECANCELED means a setup step failed and already reported why. Other errors
  * are retried later: while out of fds, a queued connection makes accept fail
  * again at once.
  */
-static void on_accept(struct chio_loop *loop, struct chio_op *op,
+static void on_accept(struct poor_loop *loop, struct poor_loop_op *op,
 		      const struct io_uring_cqe *cqe)
 {
 	struct client *c;
@@ -347,14 +349,14 @@ static void on_accept(struct chio_loop *loop, struct chio_op *op,
 	if (cqe->res < 0) {
 		fprintf(stderr, "accept: %s\n", strerror(-cqe->res));
 		if (!op->pending)
-			chio_timer_arm(loop, &accept_timer,
-				       chio_now() + ACCEPT_RETRY_NS);
+			poor_loop_timer_arm(loop, &accept_timer,
+					    poor_loop_now() + ACCEPT_RETRY_NS);
 		return;
 	}
 	c = malloc(sizeof(*c));
 	if (c) {
-		chio_op_init(&c->recv_op, on_recv);
-		chio_op_init(&c->send_op, on_send);
+		poor_loop_op_init(&c->recv_op, on_recv);
+		poor_loop_op_init(&c->send_op, on_send);
 		c->fd = cqe->res;
 		c->has_nick = false;
 		c->flood = 0;
@@ -370,21 +372,21 @@ static void on_accept(struct chio_loop *loop, struct chio_op *op,
 		accept_arm(loop, op);
 }
 
-static void on_step(struct chio_loop *loop, struct chio_op *op,
+static void on_step(struct poor_loop *loop, struct poor_loop_op *op,
 		    const struct io_uring_cqe *cqe)
 {
 	check(loop, cqe, container_of(op, struct step, op)->name);
 }
 
 static struct step steps[] = {
-	{ CHIO_OP_INIT(on_step), "socket" },
-	{ CHIO_OP_INIT(on_step), "setsockopt" },
-	{ CHIO_OP_INIT(on_step), "bind" },
-	{ CHIO_OP_INIT(on_step), "listen" },
+	{ POOR_LOOP_OP_INIT(on_step), "socket" },
+	{ POOR_LOOP_OP_INIT(on_step), "setsockopt" },
+	{ POOR_LOOP_OP_INIT(on_step), "bind" },
+	{ POOR_LOOP_OP_INIT(on_step), "listen" },
 };
 
 /* The socket is a direct descriptor, so the linked SQEs can refer to it before it exists. */
-static void listen_start(struct chio_loop *loop)
+static void listen_start(struct poor_loop *loop)
 {
 	struct io_uring_sqe *sqe;
 
@@ -408,19 +410,21 @@ static void listen_start(struct chio_loop *loop)
 }
 
 /* Signals stay unblocked afterwards, so a second Ctrl-C kills the server. */
-static void on_signal(struct chio_loop *loop, struct chio_op *,
+static void on_signal(struct poor_loop *loop, struct poor_loop_op *,
 		      const struct io_uring_cqe *cqe)
 {
 	if (!check(loop, cqe, "signalfd"))
 		return;
 	sigprocmask(SIG_UNBLOCK, &signals, nullptr);
 	stopping = true;
-	chio_timer_disarm(&accept_timer);
+	poor_loop_timer_disarm(&accept_timer);
 	reserve(loop, 3);
 	if (accept_op.pending)
-		io_uring_prep_cancel(chio_get_untracked_sqe(loop), &accept_op, 0);
-	io_uring_prep_close_direct(chio_get_untracked_sqe(loop), LISTEN_SLOT);
-	io_uring_prep_close(chio_get_untracked_sqe(loop), signal_fd);
+		io_uring_prep_cancel(poor_loop_get_untracked_sqe(loop),
+				     &accept_op, 0);
+	io_uring_prep_close_direct(poor_loop_get_untracked_sqe(loop),
+				   LISTEN_SLOT);
+	io_uring_prep_close(poor_loop_get_untracked_sqe(loop), signal_fd);
 	poor_list_foreach_safe(&clients, c)
 		client_drop(loop, c);
 	shutdown_finish(loop);
@@ -428,9 +432,9 @@ static void on_signal(struct chio_loop *loop, struct chio_op *,
 
 int main(int argc, char **argv)
 {
-	struct chio_op signal_op = CHIO_OP_INIT(on_signal);
+	struct poor_loop_op signal_op = POOR_LOOP_OP_INIT(on_signal);
 	struct io_uring_params params = {};
-	struct chio_loop loop;
+	struct poor_loop loop;
 	int port = argc > 1 ? parse_port(argv[1]) : 7777;
 	int ret;
 
@@ -448,12 +452,12 @@ int main(int argc, char **argv)
 		perror("signalfd");
 		return 1;
 	}
-	ret = chio_loop_init(&loop, 256, &params);
+	ret = poor_loop_init(&loop, 256, &params);
 	if (ret) {
-		fprintf(stderr, "chio_loop_init: %s\n", strerror(-ret));
+		fprintf(stderr, "poor_loop_init: %s\n", strerror(-ret));
 		return 1;
 	}
-	buf_ring = io_uring_setup_buf_ring(chio_loop_ring(&loop), BUF_COUNT, 0,
+	buf_ring = io_uring_setup_buf_ring(poor_loop_ring(&loop), BUF_COUNT, 0,
 					   0, &ret);
 	if (!buf_ring) {
 		fprintf(stderr, "io_uring_setup_buf_ring: %s\n", strerror(-ret));
@@ -461,7 +465,7 @@ int main(int argc, char **argv)
 	}
 	for (unsigned i = 0; i < BUF_COUNT; i++)
 		buf_recycle(i);
-	ret = io_uring_register_files_sparse(chio_loop_ring(&loop), 1);
+	ret = io_uring_register_files_sparse(poor_loop_ring(&loop), 1);
 	if (ret) {
 		fprintf(stderr, "io_uring_register_files_sparse: %s\n",
 			strerror(-ret));
@@ -470,10 +474,10 @@ int main(int argc, char **argv)
 	listen_start(&loop);
 	io_uring_prep_read(get_sqe(&loop, &signal_op), signal_fd, &siginfo,
 			   sizeof(siginfo), -1);
-	ret = chio_loop_run(&loop);
+	ret = poor_loop_run(&loop);
 	if (ret || status)
 		return 1;
-	io_uring_free_buf_ring(chio_loop_ring(&loop), buf_ring, BUF_COUNT, 0);
-	chio_loop_exit(&loop);
+	io_uring_free_buf_ring(poor_loop_ring(&loop), buf_ring, BUF_COUNT, 0);
+	poor_loop_exit(&loop);
 	return 0;
 }

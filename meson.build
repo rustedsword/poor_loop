@@ -1,5 +1,5 @@
 project(
-  'chioloop',
+  'poor_loop',
   'c',
   version: '0.1.0',
   license: 'MIT',
@@ -12,8 +12,8 @@ liburing = dependency('liburing', version: '>=2.3', include_type: 'system')
 poor_base = dependency('poor_base', version: '>=0.1')
 inc = include_directories('include')
 
-chioloop = library(
-  'chioloop',
+poor_loop = library(
+  'poor_loop',
   'src/log.c',
   'src/loop.c',
   'src/op.c',
@@ -25,23 +25,22 @@ chioloop = library(
   install: true,
 )
 
-chioloop_dep = declare_dependency(
+poor_loop_dep = declare_dependency(
   include_directories: inc,
-  link_with: chioloop,
+  link_with: poor_loop,
   dependencies: [liburing, poor_base],
 )
-meson.override_dependency('chioloop', chioloop_dep)
+meson.override_dependency('poor_loop', poor_loop_dep)
 
 install_headers(
-  'include/chioloop.h',
-  'include/chio_log.h',
-  'include/chio_loop.h',
-  'include/chio_op.h',
-  'include/chio_timer.h',
+  'include/poor_loop.h',
+  'include/poor_loop_log.h',
+  'include/poor_loop_op.h',
+  'include/poor_loop_timer.h',
 )
 
 import('pkgconfig').generate(
-  chioloop,
+  poor_loop,
   description: 'Minimal io_uring event loop',
   # A string, since Meson leaves a header-only fallback dependency out
   requires: [liburing, 'poor_base >=0.1'],

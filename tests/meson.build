@@ -3,7 +3,7 @@ fs = import('fs')
 harness = static_library(
   'harness',
   'harness.c',
-  dependencies: chioloop_dep,
+  dependencies: poor_loop_dep,
 )
 
 foreach component : ['log', 'loop', 'op', 'timer']
@@ -12,7 +12,7 @@ foreach component : ['log', 'loop', 'op', 'timer']
     'test_' + component,
     source,
     link_with: harness,
-    dependencies: [chioloop_dep, dependency('dl'), dependency('threads')],
+    dependencies: [poor_loop_dep, dependency('dl'), dependency('threads')],
   )
 
   names = []

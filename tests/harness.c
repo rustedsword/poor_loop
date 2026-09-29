@@ -39,17 +39,17 @@ void setup_params(struct io_uring_params *p)
 		p->sq_thread_idle = 10;
 }
 
-void loop_init(struct chio_loop *loop, unsigned entries)
+void loop_init(struct poor_loop *loop, unsigned entries)
 {
 	struct io_uring_params p;
 
 	setup_params(&p);
-	CHECK_EQ(chio_loop_init(loop, entries, &p), 0);
+	CHECK_EQ(poor_loop_init(loop, entries, &p), 0);
 }
 
-void enable_ring(struct chio_loop *loop)
+void enable_ring(struct poor_loop *loop)
 {
-	CHECK_EQ(syscall(__NR_io_uring_register, chio_loop_ring(loop)->ring_fd,
+	CHECK_EQ(syscall(__NR_io_uring_register, poor_loop_ring(loop)->ring_fd,
 			 IORING_REGISTER_ENABLE_RINGS, nullptr, 0), 0);
 }
 
@@ -64,27 +64,27 @@ void close_pipe(int (*fds)[2])
 	CHECK_EQ(close((*fds)[1]), 0);
 }
 
-struct io_uring_sqe *get_sqe(struct chio_loop *loop, struct chio_op *op)
+struct io_uring_sqe *get_sqe(struct poor_loop *loop, struct poor_loop_op *op)
 {
-	struct io_uring_sqe *sqe = chio_get_sqe_or_submit(loop, op);
+	struct io_uring_sqe *sqe = poor_loop_get_sqe_or_submit(loop, op);
 
 	CHECK_EQ(sqe ? 0 : errno, 0);
 	CHECK(op->pending);
 	return sqe;
 }
 
-void arm_nop(struct chio_loop *loop, struct chio_op *op)
+void arm_nop(struct poor_loop *loop, struct poor_loop_op *op)
 {
 	io_uring_prep_nop(get_sqe(loop, op));
 }
 
-void arm_read(struct chio_loop *loop, struct chio_op *op, int fd,
+void arm_read(struct poor_loop *loop, struct poor_loop_op *op, int fd,
 	      unsigned len, char (*buf)[len])
 {
 	io_uring_prep_read(get_sqe(loop, op), fd, *buf, len, 0);
 }
 
-static struct chio_op **awaited;
+static struct poor_loop_op **awaited;
 static size_t awaited_count;
 
 static bool settled(void)
@@ -95,17 +95,17 @@ static bool settled(void)
 	return true;
 }
 
-void drain_ops(struct chio_loop *loop, size_t count,
-	       struct chio_op *(*ops)[count])
+void drain_ops(struct poor_loop *loop, size_t count,
+	       struct poor_loop_op *(*ops)[count])
 {
 	awaited = *ops;
 	awaited_count = count;
 	if (!settled())
-		CHECK_EQ(chio_loop_run(loop), 0);
+		CHECK_EQ(poor_loop_run(loop), 0);
 	awaited_count = 0;
 }
 
-void rec_complete(struct chio_loop *loop, struct chio_op *op,
+void rec_complete(struct poor_loop *loop, struct poor_loop_op *op,
 		  const struct io_uring_cqe *cqe)
 {
 	struct rec *rec = container_of(op, struct rec, op);
@@ -118,45 +118,45 @@ void rec_complete(struct chio_loop *loop, struct chio_op *op,
 	rec->res = cqe->res;
 	rec->flags = cqe->flags;
 	if (awaited_count && settled())
-		chio_loop_stop(loop);
+		poor_loop_stop(loop);
 }
 
-void rec_init(struct rec *rec, chio_complete_fn *complete)
+void rec_init(struct rec *rec, poor_loop_complete_fn *complete)
 {
-	*rec = (struct rec){ .op = CHIO_OP_INIT(complete) };
+	*rec = (struct rec){ .op = POOR_LOOP_OP_INIT(complete) };
 }
 
-void stop_complete(struct chio_loop *loop, struct chio_op *op,
+void stop_complete(struct poor_loop *loop, struct poor_loop_op *op,
 		   const struct io_uring_cqe *cqe)
 {
 	rec_complete(loop, op, cqe);
-	chio_loop_stop(loop);
+	poor_loop_stop(loop);
 }
 
-void tick_fire(struct chio_loop *, struct chio_timer *timer)
+void tick_fire(struct poor_loop *, struct poor_loop_timer *timer)
 {
 	struct tick *tick = container_of(timer, struct tick, timer);
 
 	tick->fired++;
-	tick->armed = chio_timer_armed(timer);
-	tick->at = chio_now();
+	tick->armed = poor_loop_timer_armed(timer);
+	tick->at = poor_loop_now();
 	tick_order = tick_order * 10 + tick->id;
 }
 
-void tick_init(struct tick *tick, chio_timer_fn *fire, int id)
+void tick_init(struct tick *tick, poor_loop_timer_fn *fire, int id)
 {
-	*tick = (struct tick){ .timer = CHIO_TIMER_INIT(fire), .id = id };
+	*tick = (struct tick){ .timer = POOR_LOOP_TIMER_INIT(fire), .id = id };
 }
 
-void stop_fire(struct chio_loop *loop, struct chio_timer *timer)
+void stop_fire(struct poor_loop *loop, struct poor_loop_timer *timer)
 {
 	tick_fire(loop, timer);
-	chio_loop_stop(loop);
+	poor_loop_stop(loop);
 }
 
-void halt(struct chio_loop *loop, struct chio_timer *)
+void halt(struct poor_loop *loop, struct poor_loop_timer *)
 {
-	chio_loop_stop(loop);
+	poor_loop_stop(loop);
 }
 
 static int count_fds(void)

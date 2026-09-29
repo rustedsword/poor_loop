@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #define _GNU_SOURCE
 
-#include <chioloop.h>
+#include <poor_loop.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,46 +41,47 @@ static void print_stats(const char *what, struct stats s)
 	       s.p99 / 1000, s.max / 1000);
 }
 
-static void nothing(struct chio_loop *, struct chio_timer *)
+static void nothing(struct poor_loop *, struct poor_loop_timer *)
 {
 }
 
-static void run(struct chio_loop *loop)
+static void run(struct poor_loop *loop)
 {
-	int ret = chio_loop_run(loop);
+	int ret = poor_loop_run(loop);
 
 	if (ret) {
-		fprintf(stderr, "chio_loop_run: %s\n", strerror(-ret));
+		fprintf(stderr, "poor_loop_run: %s\n", strerror(-ret));
 		exit(1);
 	}
 }
 
-static uint64_t arm_cost(struct chio_loop *loop, struct chio_timer *spare,
+static uint64_t arm_cost(struct poor_loop *loop, struct poor_loop_timer *spare,
 			 uint64_t deadline, unsigned rounds)
 {
-	uint64_t start = chio_now();
+	uint64_t start = poor_loop_now();
 
 	for (unsigned i = 0; i < rounds; i++) {
-		chio_timer_arm(loop, spare, deadline);
-		chio_timer_disarm(spare);
+		poor_loop_timer_arm(loop, spare, deadline);
+		poor_loop_timer_disarm(spare);
 	}
-	return (chio_now() - start) / rounds;
+	return (poor_loop_now() - start) / rounds;
 }
 
-static void bench_insert(struct chio_loop *loop, unsigned max_timers,
+static void bench_insert(struct poor_loop *loop, unsigned max_timers,
 			 unsigned rounds)
 {
-	struct chio_timer *timers = calloc(max_timers, sizeof(*timers));
-	struct chio_timer spare = CHIO_TIMER_INIT(nothing);
+	struct poor_loop_timer *timers = calloc(max_timers, sizeof(*timers));
+	struct poor_loop_timer spare = POOR_LOOP_TIMER_INIT(nothing);
 
-	puts("arm cost, nanoseconds per chio_timer_arm:");
+	puts("arm cost, nanoseconds per poor_loop_timer_arm:");
 	for (unsigned count = 1; count <= max_timers; count *= 8) {
-		uint64_t base = chio_now() + 10 * NS_PER_SEC;
+		uint64_t base = poor_loop_now() + 10 * NS_PER_SEC;
 		uint64_t tail, head, median;
 
 		for (unsigned i = 0; i < count; i++) {
-			chio_timer_init(&timers[i], nothing);
-			chio_timer_arm(loop, &timers[i], base + i * NS_PER_MS);
+			poor_loop_timer_init(&timers[i], nothing);
+			poor_loop_timer_arm(loop, &timers[i],
+					    base + i * NS_PER_MS);
 		}
 		tail = arm_cost(loop, &spare, base + count * NS_PER_MS, rounds);
 		head = arm_cost(loop, &spare, 1, rounds);
@@ -89,30 +90,32 @@ static void bench_insert(struct chio_loop *loop, unsigned max_timers,
 		printf("  armed=%-4u tail=%" PRIu64 "ns head=%" PRIu64
 		       "ns median=%" PRIu64 "ns\n", count, tail, head, median);
 		for (unsigned i = 0; i < count; i++)
-			chio_timer_disarm(&timers[i]);
+			poor_loop_timer_disarm(&timers[i]);
 	}
 	free(timers);
 }
 
 struct probe {
-	struct chio_timer timer;
+	struct poor_loop_timer timer;
 	uint64_t fired;
 };
 
-static void probe_fire(struct chio_loop *loop, struct chio_timer *timer)
+static void probe_fire(struct poor_loop *loop, struct poor_loop_timer *timer)
 {
-	container_of(timer, struct probe, timer)->fired = chio_now();
-	chio_loop_stop(loop);
+	container_of(timer, struct probe, timer)->fired = poor_loop_now();
+	poor_loop_stop(loop);
 }
 
-static void bench_loop_timer(struct chio_loop *loop, uint64_t delay,
+static void bench_loop_timer(struct poor_loop *loop, uint64_t delay,
 			     unsigned count, int64_t (*errors)[count])
 {
 	for (unsigned i = 0; i < count; i++) {
-		struct probe probe = { .timer = CHIO_TIMER_INIT(probe_fire) };
-		uint64_t deadline = chio_now() + delay;
+		struct probe probe = {
+			.timer = POOR_LOOP_TIMER_INIT(probe_fire),
+		};
+		uint64_t deadline = poor_loop_now() + delay;
 
-		chio_timer_arm(loop, &probe.timer, deadline);
+		poor_loop_timer_arm(loop, &probe.timer, deadline);
 		run(loop);
 		(*errors)[i] = (int64_t)(probe.fired - deadline);
 	}
@@ -124,7 +127,7 @@ static void bench_uring_abs(struct io_uring *ring, uint64_t delay,
 	struct io_uring_cqe *cqe;
 
 	for (unsigned i = 0; i < count; i++) {
-		uint64_t deadline = chio_now() + delay;
+		uint64_t deadline = poor_loop_now() + delay;
 		struct __kernel_timespec ts = {
 			.tv_sec = deadline / NS_PER_SEC,
 			.tv_nsec = deadline % NS_PER_SEC,
@@ -133,7 +136,7 @@ static void bench_uring_abs(struct io_uring *ring, uint64_t delay,
 		io_uring_prep_timeout(io_uring_get_sqe(ring), &ts, 0,
 				      IORING_TIMEOUT_ABS);
 		io_uring_submit_and_wait(ring, 1);
-		(*errors)[i] = (int64_t)(chio_now() - deadline);
+		(*errors)[i] = (int64_t)(poor_loop_now() - deadline);
 		if (!io_uring_peek_cqe(ring, &cqe))
 			io_uring_cqe_seen(ring, cqe);
 	}
@@ -143,18 +146,18 @@ static void bench_nanosleep(uint64_t delay, unsigned count,
 			    int64_t (*errors)[count])
 {
 	for (unsigned i = 0; i < count; i++) {
-		uint64_t deadline = chio_now() + delay;
+		uint64_t deadline = poor_loop_now() + delay;
 		struct timespec ts = {
 			.tv_sec = deadline / NS_PER_SEC,
 			.tv_nsec = deadline % NS_PER_SEC,
 		};
 
 		clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr);
-		(*errors)[i] = (int64_t)(chio_now() - deadline);
+		(*errors)[i] = (int64_t)(poor_loop_now() - deadline);
 	}
 }
 
-static void bench_latency(struct chio_loop *loop, uint64_t delay,
+static void bench_latency(struct poor_loop *loop, uint64_t delay,
 			  unsigned samples)
 {
 	int64_t (*errors)[samples] = calloc(1, sizeof(*errors));
@@ -164,7 +167,8 @@ static void bench_latency(struct chio_loop *loop, uint64_t delay,
 	printf("firing error at a %" PRIu64 "us deadline, n=%u:\n",
 	       delay / NS_PER_US, samples);
 	bench_loop_timer(loop, delay, samples, errors);
-	print_stats("chio_timer (wait timeout)", summarize(samples, errors));
+	print_stats("poor_loop_timer (wait timeout)",
+		    summarize(samples, errors));
 	bench_uring_abs(&ring, delay, samples, errors);
 	print_stats("IORING_TIMEOUT_ABS", summarize(samples, errors));
 	bench_nanosleep(delay, samples, errors);
@@ -174,37 +178,37 @@ static void bench_latency(struct chio_loop *loop, uint64_t delay,
 }
 
 struct ordered {
-	struct chio_timer timer;
+	struct poor_loop_timer timer;
 	unsigned id;
 };
 
 static unsigned fired, order;
 
-static void note_order(struct chio_loop *loop, struct chio_timer *timer)
+static void note_order(struct poor_loop *loop, struct poor_loop_timer *timer)
 {
 	struct ordered *ordered = container_of(timer, struct ordered, timer);
 
 	order = order * 10 + ordered->id;
 	if (++fired == 3)
-		chio_loop_stop(loop);
+		poor_loop_stop(loop);
 }
 
-static bool check_order(struct chio_loop *loop)
+static bool check_order(struct poor_loop *loop)
 {
 	struct ordered timers[] = {
-		{ .timer = CHIO_TIMER_INIT(note_order), .id = 3 },
-		{ .timer = CHIO_TIMER_INIT(note_order), .id = 1 },
-		{ .timer = CHIO_TIMER_INIT(note_order), .id = 2 },
+		{ .timer = POOR_LOOP_TIMER_INIT(note_order), .id = 3 },
+		{ .timer = POOR_LOOP_TIMER_INIT(note_order), .id = 1 },
+		{ .timer = POOR_LOOP_TIMER_INIT(note_order), .id = 2 },
 	};
-	uint64_t base = chio_now();
+	uint64_t base = poor_loop_now();
 	uint64_t deadlines[] = {
 		base + 30 * NS_PER_MS, base, base + 15 * NS_PER_MS,
 	};
 
 	fired = order = 0;
 	for (unsigned i = 0; i < 3; i++)
-		chio_timer_arm(loop, &timers[i].timer, deadlines[i]);
-	chio_timer_arm(loop, &timers[1].timer, base + 5 * NS_PER_MS);
+		poor_loop_timer_arm(loop, &timers[i].timer, deadlines[i]);
+	poor_loop_timer_arm(loop, &timers[1].timer, base + 5 * NS_PER_MS);
 	run(loop);
 	printf("deadline order: fired %u%s\n", order,
 	       order == 123 ? " (ok)" : " (WRONG)");
@@ -216,7 +220,7 @@ int main(int argc, char **argv)
 	unsigned max_timers = 512, rounds = 20'000, samples = 2'000;
 	struct io_uring_params params = {};
 	const char *what = "all";
-	struct chio_loop loop;
+	struct poor_loop loop;
 	bool ok = true;
 
 	for (int i = 1; i < argc; i++) {
@@ -230,7 +234,7 @@ int main(int argc, char **argv)
 			what = argv[i];
 	}
 	setvbuf(stdout, nullptr, _IONBF, 0);
-	if (chio_loop_init(&loop, 64, &params))
+	if (poor_loop_init(&loop, 64, &params))
 		return 1;
 	if (!strcmp(what, "all") || !strcmp(what, "insert")) {
 		ok = check_order(&loop);
@@ -241,6 +245,6 @@ int main(int argc, char **argv)
 		bench_latency(&loop, NS_PER_MS, samples);
 		bench_latency(&loop, 16 * NS_PER_MS, samples / 8 + 1);
 	}
-	chio_loop_exit(&loop);
+	poor_loop_exit(&loop);
 	return !ok;
 }

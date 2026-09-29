@@ -3,7 +3,7 @@ if liburing.version().version_compare('>=2.8')
     executable(
       'nanochat_' + name,
       name + '.c',
-      dependencies: chioloop_dep,
+      dependencies: poor_loop_dep,
     )
   endforeach
 endif
