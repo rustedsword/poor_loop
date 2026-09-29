@@ -9,7 +9,7 @@ project(
 )
 
 liburing = dependency('liburing', version: '>=2.3', include_type: 'system')
-poor_base = dependency('poor_base', version: '>=0.1')
+poor_base = dependency('poor_base')
 inc = include_directories('include')
 
 poor_loop = library(
@@ -43,7 +43,7 @@ import('pkgconfig').generate(
   poor_loop,
   description: 'Minimal io_uring event loop',
   # A string, since Meson leaves a header-only fallback dependency out
-  requires: [liburing, 'poor_base >=0.1'],
+  requires: [liburing, 'poor_base'],
 )
 
 if not meson.is_subproject()
