@@ -54,8 +54,7 @@ static int test_log_sq_space(void)
 	CHECK_EQ(poor_loop_check_sq_space_or_submit(&loop, 2), 0);
 	CHECK_EQ(logs, 1);
 	CHECK(logged_loop == &loop);
-	CHECK(!strcmp(logged,
-		      "SQ has 1 of 4 entries free, 2 needed: submitting"));
+	CHECK(!strcmp(logged, "SQ has 1 of 4 entries free, 2 needed: submitting"));
 	for (i = 0; i < 3; i++)
 		drain(&loop, &recs[i].op);
 	for (i = 3; i < 7; i++)
@@ -63,8 +62,7 @@ static int test_log_sq_space(void)
 	CHECK_EQ(logs, 1);
 	arm_nop(&loop, &recs[7].op);
 	CHECK_EQ(logs, 2);
-	CHECK(!strcmp(logged,
-		      "SQ has 0 of 4 entries free, 1 needed: submitting"));
+	CHECK(!strcmp(logged, "SQ has 0 of 4 entries free, 1 needed: submitting"));
 	for (i = 3; i < ARRAY_SIZE(recs); i++)
 		drain(&loop, &recs[i].op);
 	poor_loop_log_function_set(nullptr);

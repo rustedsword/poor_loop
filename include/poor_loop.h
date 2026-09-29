@@ -34,8 +34,7 @@ static inline struct io_uring *poor_loop_ring(struct poor_loop *loop)
  * 'params' is passed to io_uring_queue_init_params(), which writes the actual
  * ring sizes back into it. Returns 0 on success, or -errno on error.
  */
-[[nodiscard]] int poor_loop_init(struct poor_loop *loop, unsigned entries,
-				 struct io_uring_params *params);
+[[nodiscard]] int poor_loop_init(struct poor_loop *loop, unsigned entries, struct io_uring_params *params);
 
 /*
  * Tear down the event loop and close the io_uring ring.

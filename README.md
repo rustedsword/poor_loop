@@ -23,8 +23,7 @@ meson compile -C build
 
 static char buf[4096];
 
-static void on_read(struct poor_loop *loop, struct poor_loop_op *op,
-		    const struct io_uring_cqe *cqe)
+static void on_read(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	if (cqe->res <= 0) {
 		poor_loop_stop(loop);

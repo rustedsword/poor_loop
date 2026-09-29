@@ -11,9 +11,7 @@ extern "C" {
 struct poor_loop;
 struct poor_loop_op;
 
-typedef void poor_loop_complete_fn(struct poor_loop *loop,
-				   struct poor_loop_op *op,
-				   const struct io_uring_cqe *cqe);
+typedef void poor_loop_complete_fn(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe);
 
 /*
  * Tracks an in-flight I/O request.
@@ -32,8 +30,7 @@ struct poor_loop_op {
 
 #define POOR_LOOP_OP_INIT(fn) { .complete = (fn), .pending = false, .data = {} }
 
-static inline void poor_loop_op_init(struct poor_loop_op *op,
-				     poor_loop_complete_fn *complete)
+static inline void poor_loop_op_init(struct poor_loop_op *op, poor_loop_complete_fn *complete)
 {
 	struct poor_loop_op init = POOR_LOOP_OP_INIT(complete);
 
@@ -55,10 +52,7 @@ static inline void poor_loop_op_init(struct poor_loop_op *op,
 /* Like poor_loop_get_sqe(), but submit and wait if the SQ is full. */
 [[nodiscard]] struct io_uring_sqe *poor_loop_get_sqe_or_submit(struct poor_loop *loop, struct poor_loop_op *op);
 
-/*
- * Like poor_loop_get_sqe(), but with zero user_data, so the loop ignores
- * the CQE.
- */
+/* Like poor_loop_get_sqe(), but with zero user_data, so the loop ignores the CQE. */
 [[nodiscard]] struct io_uring_sqe *poor_loop_get_untracked_sqe(struct poor_loop *loop);
 
 /* Like poor_loop_get_untracked_sqe(), but submit and wait if the SQ is full. */

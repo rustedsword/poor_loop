@@ -3,8 +3,7 @@
 
 #include "internal.h"
 
-void poor_loop_timer_arm(struct poor_loop *loop, struct poor_loop_timer *timer,
-			 uint64_t deadline)
+void poor_loop_timer_arm(struct poor_loop *loop, struct poor_loop_timer *timer, uint64_t deadline)
 {
 	struct poor_loop_timer *at;
 
@@ -22,8 +21,7 @@ void poor_loop_timer_arm(struct poor_loop *loop, struct poor_loop_timer *timer,
 	poor_list_insert_after(&loop->timers, at, timer);
 }
 
-bool poor_loop_timers_timeout(struct poor_loop *loop,
-			      struct __kernel_timespec *ts)
+bool poor_loop_timers_timeout(struct poor_loop *loop, struct __kernel_timespec *ts)
 {
 	struct poor_loop_timer *first = poor_list_first(&loop->timers);
 	uint64_t deadline, now, left;

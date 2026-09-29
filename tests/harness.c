@@ -18,16 +18,13 @@ uint64_t tick_order;
 
 [[noreturn]] void fail(const char *file, int line, const char *expr)
 {
-	fprintf(stderr, "%s:%d: [%s] check failed: %s\n", file, line,
-		mode->name, expr);
+	fprintf(stderr, "%s:%d: [%s] check failed: %s\n", file, line, mode->name, expr);
 	exit(1);
 }
 
-[[noreturn]] void fail_eq(const char *file, int line, const char *a,
-			  const char *b, long long va, long long vb)
+[[noreturn]] void fail_eq(const char *file, int line, const char *a, const char *b, long long va, long long vb)
 {
-	fprintf(stderr, "%s:%d: [%s] check failed: %s == %s (%lld != %lld)\n",
-		file, line, mode->name, a, b, va, vb);
+	fprintf(stderr, "%s:%d: [%s] check failed: %s == %s (%lld != %lld)\n", file, line, mode->name, a, b, va, vb);
 	exit(1);
 }
 
@@ -49,8 +46,7 @@ void loop_init(struct poor_loop *loop, unsigned entries)
 
 void enable_ring(struct poor_loop *loop)
 {
-	CHECK_EQ(syscall(__NR_io_uring_register, poor_loop_ring(loop)->ring_fd,
-			 IORING_REGISTER_ENABLE_RINGS, nullptr, 0), 0);
+	CHECK_EQ(syscall(__NR_io_uring_register, poor_loop_ring(loop)->ring_fd, IORING_REGISTER_ENABLE_RINGS, nullptr, 0), 0);
 }
 
 void make_pipe(int (*fds)[2])
@@ -78,8 +74,7 @@ void arm_nop(struct poor_loop *loop, struct poor_loop_op *op)
 	io_uring_prep_nop(get_sqe(loop, op));
 }
 
-void arm_read(struct poor_loop *loop, struct poor_loop_op *op, int fd,
-	      unsigned len, char (*buf)[len])
+void arm_read(struct poor_loop *loop, struct poor_loop_op *op, int fd, unsigned len, char (*buf)[len])
 {
 	io_uring_prep_read(get_sqe(loop, op), fd, *buf, len, 0);
 }
@@ -95,8 +90,7 @@ static bool settled(void)
 	return true;
 }
 
-void drain_ops(struct poor_loop *loop, size_t count,
-	       struct poor_loop_op *(*ops)[count])
+void drain_ops(struct poor_loop *loop, size_t count, struct poor_loop_op *(*ops)[count])
 {
 	awaited = *ops;
 	awaited_count = count;
@@ -105,8 +99,7 @@ void drain_ops(struct poor_loop *loop, size_t count,
 	awaited_count = 0;
 }
 
-void rec_complete(struct poor_loop *loop, struct poor_loop_op *op,
-		  const struct io_uring_cqe *cqe)
+void rec_complete(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	struct rec *rec = container_of(op, struct rec, op);
 
@@ -126,8 +119,7 @@ void rec_init(struct rec *rec, poor_loop_complete_fn *complete)
 	*rec = (struct rec){ .op = POOR_LOOP_OP_INIT(complete) };
 }
 
-void stop_complete(struct poor_loop *loop, struct poor_loop_op *op,
-		   const struct io_uring_cqe *cqe)
+void stop_complete(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	rec_complete(loop, op, cqe);
 	poor_loop_stop(loop);
@@ -179,8 +171,7 @@ static int run_test(const struct test *test)
 	int ret = test->fn();
 
 	CHECK_EQ(count_fds(), fds);
-	printf("%s %s.%s\n", ret == SKIP ? "SKIP" : "PASS", mode->name,
-	       test->name);
+	printf("%s %s.%s\n", ret == SKIP ? "SKIP" : "PASS", mode->name, test->name);
 	return ret;
 }
 

@@ -5,8 +5,7 @@
 
 #include "internal.h"
 
-int poor_loop_init(struct poor_loop *loop, unsigned entries,
-		   struct io_uring_params *params)
+int poor_loop_init(struct poor_loop *loop, unsigned entries, struct io_uring_params *params)
 {
 	poor_list_init(&loop->timers);
 	loop->stop = false;
@@ -25,8 +24,7 @@ static int step(struct poor_loop *loop)
 	int ret;
 
 	if (poor_loop_timers_timeout(loop, &ts))
-		ret = io_uring_submit_and_wait_timeout(&loop->ring, &cqe, 1,
-						       &ts, nullptr);
+		ret = io_uring_submit_and_wait_timeout(&loop->ring, &cqe, 1, &ts, nullptr);
 	else
 		ret = io_uring_submit_and_wait(&loop->ring, 1);
 	if (ret == -EAGAIN || ret == -ENOMEM)

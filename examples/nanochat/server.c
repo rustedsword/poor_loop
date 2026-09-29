@@ -1,10 +1,10 @@
 /* SPDX-License-Identifier: MIT */
 #define _GNU_SOURCE
 
-#include <poor_loop.h>
 #include <ctype.h>
 #include <errno.h>
 #include <netinet/in.h>
+#include <poor_loop.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,13 +53,11 @@ static unsigned nclients;
 static int one = 1, signal_fd, status;
 static bool stopping;
 
-static void on_accept(struct poor_loop *loop, struct poor_loop_op *op,
-		      const struct io_uring_cqe *cqe);
+static void on_accept(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe);
 
 static struct poor_loop_op accept_op = POOR_LOOP_OP_INIT(on_accept);
 
-static struct io_uring_sqe *get_sqe(struct poor_loop *loop,
-				    struct poor_loop_op *op)
+static struct io_uring_sqe *get_sqe(struct poor_loop *loop, struct poor_loop_op *op)
 {
 	struct io_uring_sqe *sqe = poor_loop_get_sqe_or_submit(loop, op);
 
@@ -75,8 +73,7 @@ static void reserve(struct poor_loop *loop, unsigned n)
 	int ret = poor_loop_check_sq_space_or_submit(loop, n);
 
 	if (ret) {
-		fprintf(stderr, "poor_loop_check_sq_space_or_submit: %s\n",
-			strerror(-ret));
+		fprintf(stderr, "poor_loop_check_sq_space_or_submit: %s\n", strerror(-ret));
 		exit(1);
 	}
 }
@@ -87,8 +84,7 @@ static void fd_close(struct poor_loop *loop, int fd)
 	io_uring_prep_close(poor_loop_get_untracked_sqe(loop), fd);
 }
 
-static bool check(struct poor_loop *loop, const struct io_uring_cqe *cqe,
-		  const char *what)
+static bool check(struct poor_loop *loop, const struct io_uring_cqe *cqe, const char *what)
 {
 	if (cqe->res >= 0)
 		return true;
@@ -137,8 +133,7 @@ static void client_drop(struct poor_loop *loop, struct client *c)
 	io_uring_prep_close(poor_loop_get_untracked_sqe(loop), c->fd);
 }
 
-static void on_drained(struct poor_loop *loop, struct poor_loop_op *,
-		       const struct io_uring_cqe *)
+static void on_drained(struct poor_loop *loop, struct poor_loop_op *, const struct io_uring_cqe *)
 {
 	poor_loop_stop(loop);
 }
@@ -171,8 +166,7 @@ static void client_release(struct poor_loop *loop, struct client *c)
 
 static void client_flush(struct poor_loop *loop, struct client *c)
 {
-	io_uring_prep_send(get_sqe(loop, &c->send_op), c->fd, c->out,
-			   c->out_len, MSG_NOSIGNAL);
+	io_uring_prep_send(get_sqe(loop, &c->send_op), c->fd, c->out, c->out_len, MSG_NOSIGNAL);
 }
 
 /*
@@ -180,8 +174,7 @@ static void client_flush(struct poor_loop *loop, struct client *c)
  * senders bursting in one loop iteration can still drop a healthy reader; any
  * bounded buffer has that limit.
  */
-static void client_send(struct poor_loop *loop, struct client *c,
-			const char *data, size_t len)
+static void client_send(struct poor_loop *loop, struct client *c, const char *data, size_t len)
 {
 	if (c->out_len + len > sizeof(c->out)) {
 		client_drop(loop, c);
@@ -232,8 +225,7 @@ static void client_line(struct poor_loop *loop, struct client *c)
  * (U+0080..U+009F, i.e. 0xc2 0x80..0x9f), which some terminals obey too. Long
  * lines are split, except the nick line, which is cut.
  */
-static void client_input(struct poor_loop *loop, struct client *c,
-			 const char *data, size_t len)
+static void client_input(struct poor_loop *loop, struct client *c, const char *data, size_t len)
 {
 	unsigned char ch;
 
@@ -241,8 +233,7 @@ static void client_input(struct poor_loop *loop, struct client *c,
 		ch = *data;
 		if (ch == '\n') {
 			client_line(loop, c);
-		} else if (ch >= 0x80 && ch <= 0x9f && c->in_len &&
-			   (unsigned char)c->in[c->in_len - 1] == 0xc2) {
+		} else if (ch >= 0x80 && ch <= 0x9f && c->in_len && (unsigned char)c->in[c->in_len - 1] == 0xc2) {
 			c->in_len--;
 		} else if (!iscntrl(ch)) {
 			if (c->in_len == sizeof(c->in)) {
@@ -266,13 +257,11 @@ static void client_recv(struct poor_loop *loop, struct client *c)
 
 static void buf_recycle(unsigned id)
 {
-	io_uring_buf_ring_add(buf_ring, bufs[id], BUF_SIZE, id,
-			      io_uring_buf_ring_mask(BUF_COUNT), 0);
+	io_uring_buf_ring_add(buf_ring, bufs[id], BUF_SIZE, id, io_uring_buf_ring_mask(BUF_COUNT), 0);
 	io_uring_buf_ring_advance(buf_ring, 1);
 }
 
-static void on_send(struct poor_loop *loop, struct poor_loop_op *op,
-		    const struct io_uring_cqe *cqe)
+static void on_send(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	struct client *c = container_of(op, struct client, send_op);
 
@@ -287,8 +276,7 @@ static void on_send(struct poor_loop *loop, struct poor_loop_op *op,
 		client_flush(loop, c);
 }
 
-static void on_recv(struct poor_loop *loop, struct poor_loop_op *op,
-		    const struct io_uring_cqe *cqe)
+static void on_recv(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	struct client *c = container_of(op, struct client, recv_op);
 	unsigned id;
@@ -322,16 +310,14 @@ static void on_accept_retry(struct poor_loop *loop, struct poor_loop_timer *)
 	accept_arm(loop, &accept_op);
 }
 
-static struct poor_loop_timer accept_timer =
-	POOR_LOOP_TIMER_INIT(on_accept_retry);
+static struct poor_loop_timer accept_timer = POOR_LOOP_TIMER_INIT(on_accept_retry);
 
 /*
  * -ECANCELED means a setup step failed and already reported why. Other errors
  * are retried later: while out of fds, a queued connection makes accept fail
  * again at once.
  */
-static void on_accept(struct poor_loop *loop, struct poor_loop_op *op,
-		      const struct io_uring_cqe *cqe)
+static void on_accept(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	struct client *c;
 
@@ -349,8 +335,7 @@ static void on_accept(struct poor_loop *loop, struct poor_loop_op *op,
 	if (cqe->res < 0) {
 		fprintf(stderr, "accept: %s\n", strerror(-cqe->res));
 		if (!op->pending)
-			poor_loop_timer_arm(loop, &accept_timer,
-					    poor_loop_now() + ACCEPT_RETRY_NS);
+			poor_loop_timer_arm(loop, &accept_timer, poor_loop_now() + ACCEPT_RETRY_NS);
 		return;
 	}
 	c = malloc(sizeof(*c));
@@ -372,8 +357,7 @@ static void on_accept(struct poor_loop *loop, struct poor_loop_op *op,
 		accept_arm(loop, op);
 }
 
-static void on_step(struct poor_loop *loop, struct poor_loop_op *op,
-		    const struct io_uring_cqe *cqe)
+static void on_step(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	check(loop, cqe, container_of(op, struct step, op)->name);
 }
@@ -392,16 +376,13 @@ static void listen_start(struct poor_loop *loop)
 
 	reserve(loop, 5);
 	sqe = get_sqe(loop, &steps[0].op);
-	io_uring_prep_socket_direct(sqe, AF_INET, SOCK_STREAM, 0, LISTEN_SLOT,
-				    0);
+	io_uring_prep_socket_direct(sqe, AF_INET, SOCK_STREAM, 0, LISTEN_SLOT, 0);
 	sqe->flags |= IOSQE_IO_LINK;
 	sqe = get_sqe(loop, &steps[1].op);
-	io_uring_prep_cmd_sock(sqe, SOCKET_URING_OP_SETSOCKOPT, LISTEN_SLOT,
-			       SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+	io_uring_prep_cmd_sock(sqe, SOCKET_URING_OP_SETSOCKOPT, LISTEN_SLOT, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
 	sqe->flags |= IOSQE_FIXED_FILE | IOSQE_IO_LINK;
 	sqe = get_sqe(loop, &steps[2].op);
-	io_uring_prep_bind(sqe, LISTEN_SLOT, (struct sockaddr *)&addr,
-			   sizeof(addr));
+	io_uring_prep_bind(sqe, LISTEN_SLOT, (struct sockaddr *)&addr, sizeof(addr));
 	sqe->flags |= IOSQE_FIXED_FILE | IOSQE_IO_LINK;
 	sqe = get_sqe(loop, &steps[3].op);
 	io_uring_prep_listen(sqe, LISTEN_SLOT, SOMAXCONN);
@@ -410,8 +391,7 @@ static void listen_start(struct poor_loop *loop)
 }
 
 /* Signals stay unblocked afterwards, so a second Ctrl-C kills the server. */
-static void on_signal(struct poor_loop *loop, struct poor_loop_op *,
-		      const struct io_uring_cqe *cqe)
+static void on_signal(struct poor_loop *loop, struct poor_loop_op *, const struct io_uring_cqe *cqe)
 {
 	if (!check(loop, cqe, "signalfd"))
 		return;
@@ -420,10 +400,8 @@ static void on_signal(struct poor_loop *loop, struct poor_loop_op *,
 	poor_loop_timer_disarm(&accept_timer);
 	reserve(loop, 3);
 	if (accept_op.pending)
-		io_uring_prep_cancel(poor_loop_get_untracked_sqe(loop),
-				     &accept_op, 0);
-	io_uring_prep_close_direct(poor_loop_get_untracked_sqe(loop),
-				   LISTEN_SLOT);
+		io_uring_prep_cancel(poor_loop_get_untracked_sqe(loop), &accept_op, 0);
+	io_uring_prep_close_direct(poor_loop_get_untracked_sqe(loop), LISTEN_SLOT);
 	io_uring_prep_close(poor_loop_get_untracked_sqe(loop), signal_fd);
 	poor_list_foreach_safe(&clients, c)
 		client_drop(loop, c);
@@ -457,8 +435,7 @@ int main(int argc, char **argv)
 		fprintf(stderr, "poor_loop_init: %s\n", strerror(-ret));
 		return 1;
 	}
-	buf_ring = io_uring_setup_buf_ring(poor_loop_ring(&loop), BUF_COUNT, 0,
-					   0, &ret);
+	buf_ring = io_uring_setup_buf_ring(poor_loop_ring(&loop), BUF_COUNT, 0, 0, &ret);
 	if (!buf_ring) {
 		fprintf(stderr, "io_uring_setup_buf_ring: %s\n", strerror(-ret));
 		return 1;
@@ -467,13 +444,11 @@ int main(int argc, char **argv)
 		buf_recycle(i);
 	ret = io_uring_register_files_sparse(poor_loop_ring(&loop), 1);
 	if (ret) {
-		fprintf(stderr, "io_uring_register_files_sparse: %s\n",
-			strerror(-ret));
+		fprintf(stderr, "io_uring_register_files_sparse: %s\n", strerror(-ret));
 		return 1;
 	}
 	listen_start(&loop);
-	io_uring_prep_read(get_sqe(&loop, &signal_op), signal_fd, &siginfo,
-			   sizeof(siginfo), -1);
+	io_uring_prep_read(get_sqe(&loop, &signal_op), signal_fd, &siginfo, sizeof(siginfo), -1);
 	ret = poor_loop_run(&loop);
 	if (ret || status)
 		return 1;

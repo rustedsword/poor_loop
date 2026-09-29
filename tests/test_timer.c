@@ -180,8 +180,7 @@ static int test_timer_wait(void)
 	CHECK_EQ(reader.calls, 0);
 	CHECK(reader.op.pending);
 
-	poor_loop_timer_arm(&loop, &tick.timer,
-			    poor_loop_now() + 10'000'000'000);
+	poor_loop_timer_arm(&loop, &tick.timer, poor_loop_now() + 10'000'000'000);
 	CHECK_EQ(write(fds[1], "x", 1), 1);
 	drain(&loop, &reader.op);
 	CHECK_EQ(reader.res, 1);
@@ -233,8 +232,7 @@ static void check_sorted(struct poor_loop *loop, unsigned armed)
 	unsigned count = 0, seq = 0;
 
 	poor_list_foreach(&loop->timers, timer) {
-		struct stamped *stamped =
-			container_of(timer, struct stamped, timer);
+		struct stamped *stamped = container_of(timer, struct stamped, timer);
 
 		CHECK(timer->deadline >= deadline);
 		if (timer->deadline == deadline)
@@ -274,8 +272,7 @@ static int test_timer_sorted(void)
 		armed -= poor_loop_timer_armed(&stamped->timer);
 		if (xorshift(&rng) % 4) {
 			stamped->seq = ++seq;
-			poor_loop_timer_arm(&loop, &stamped->timer,
-					    1 + xorshift(&rng) % 64);
+			poor_loop_timer_arm(&loop, &stamped->timer, 1 + xorshift(&rng) % 64);
 			armed++;
 		} else {
 			poor_loop_timer_disarm(&stamped->timer);

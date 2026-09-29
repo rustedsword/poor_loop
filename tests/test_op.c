@@ -54,8 +54,7 @@ static int test_nop(void)
 	return 0;
 }
 
-static void resubmit_complete(struct poor_loop *loop, struct poor_loop_op *op,
-			      const struct io_uring_cqe *cqe)
+static void resubmit_complete(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	uint32_t count;
 
@@ -302,8 +301,7 @@ static int test_pipe_io(void)
 	rec_init(&reader, rec_complete);
 	rec_init(&writer, rec_complete);
 	arm_read(&loop, &reader.op, fds[0], sizeof(buf), &buf);
-	io_uring_prep_write(get_sqe(&loop, &writer.op), fds[1], msg,
-			    sizeof(msg), 0);
+	io_uring_prep_write(get_sqe(&loop, &writer.op), fds[1], msg, sizeof(msg), 0);
 	drain(&loop, &reader.op, &writer.op);
 	CHECK_EQ(writer.calls, 1);
 	CHECK_EQ(writer.res, sizeof(msg));
@@ -376,8 +374,7 @@ static int test_linked_sq_full(void)
 	return 0;
 }
 
-static void shot_complete(struct poor_loop *loop, struct poor_loop_op *op,
-			  const struct io_uring_cqe *cqe)
+static void shot_complete(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	rec_complete(loop, op, cqe);
 	if (cqe->flags & IORING_CQE_F_MORE)
@@ -393,8 +390,7 @@ static int test_multishot(void)
 
 	loop_init(&loop, 8);
 	rec_init(&rec, shot_complete);
-	io_uring_prep_timeout(get_sqe(&loop, &rec.op), &ts, 3,
-			      IORING_TIMEOUT_MULTISHOT);
+	io_uring_prep_timeout(get_sqe(&loop, &rec.op), &ts, 3, IORING_TIMEOUT_MULTISHOT);
 	drain(&loop, &rec.op);
 	if (rec.calls == 1 && rec.res == -EINVAL) {
 		ret = SKIP;
@@ -413,8 +409,7 @@ struct poll_cancel {
 	struct rec cancel;
 };
 
-static void poll_complete(struct poor_loop *loop, struct poor_loop_op *op,
-			  const struct io_uring_cqe *cqe)
+static void poll_complete(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	struct poll_cancel *pc = container_of(op, struct poll_cancel, poll.op);
 
@@ -435,8 +430,7 @@ static int test_multishot_cancel(void)
 	loop_init(&loop, 8);
 	rec_init(&pc.poll, poll_complete);
 	rec_init(&pc.cancel, rec_complete);
-	io_uring_prep_poll_multishot(get_sqe(&loop, &pc.poll.op), fds[0],
-				     POLLIN);
+	io_uring_prep_poll_multishot(get_sqe(&loop, &pc.poll.op), fds[0], POLLIN);
 	CHECK_EQ(io_uring_submit(poor_loop_ring(&loop)), 1);
 	CHECK_EQ(write(fds[1], "x", 1), 1);
 	drain(&loop, &pc.poll.op, &pc.cancel.op);
@@ -514,12 +508,10 @@ static int test_cancel_fd(void)
 	loop_init(&loop, 8);
 	for (i = 0; i < ARRAY_SIZE(readers); i++) {
 		rec_init(&readers[i], rec_complete);
-		arm_read(&loop, &readers[i].op, fds[0], sizeof(buf[i]),
-			 &buf[i]);
+		arm_read(&loop, &readers[i].op, fds[0], sizeof(buf[i]), &buf[i]);
 	}
 	rec_init(&cancel, rec_complete);
-	io_uring_prep_cancel_fd(get_sqe(&loop, &cancel.op), fds[0],
-				IORING_ASYNC_CANCEL_ALL);
+	io_uring_prep_cancel_fd(get_sqe(&loop, &cancel.op), fds[0], IORING_ASYNC_CANCEL_ALL);
 	drain(&loop, &cancel.op);
 	if (cancel.res == -EINVAL) {
 		ret = SKIP;
@@ -554,8 +546,7 @@ static int test_cancel_any(void)
 	io_uring_prep_poll_add(get_sqe(&loop, &ops[1].op), fds[0], POLLIN);
 	io_uring_prep_timeout(get_sqe(&loop, &ops[2].op), &ts, 0, 0);
 	CHECK_EQ(io_uring_submit(poor_loop_ring(&loop)), 3);
-	io_uring_prep_cancel(get_sqe(&loop, &cancel.op), nullptr,
-			     IORING_ASYNC_CANCEL_ANY);
+	io_uring_prep_cancel(get_sqe(&loop, &cancel.op), nullptr, IORING_ASYNC_CANCEL_ANY);
 	drain(&loop, &cancel.op);
 	if (cancel.res == -EINVAL) {
 		ret = SKIP;
@@ -577,8 +568,7 @@ struct heap_op {
 	int *freed;
 };
 
-static void heap_complete(struct poor_loop *loop, struct poor_loop_op *op,
-			  const struct io_uring_cqe *cqe)
+static void heap_complete(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	struct heap_op *heap = container_of(op, struct heap_op, op);
 	int *freed = heap->freed;

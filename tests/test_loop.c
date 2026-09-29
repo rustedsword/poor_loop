@@ -72,8 +72,7 @@ struct storm {
 	struct tick stopper;
 };
 
-static void storm_complete(struct poor_loop *loop, struct poor_loop_op *op,
-			   const struct io_uring_cqe *cqe)
+static void storm_complete(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	struct storm *storm = container_of(op, struct storm, rec.op);
 

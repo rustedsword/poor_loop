@@ -13,15 +13,14 @@ extern "C" {
 struct poor_loop;
 struct poor_loop_timer;
 
-typedef void poor_loop_timer_fn(struct poor_loop *loop,
-				struct poor_loop_timer *timer);
+typedef void poor_loop_timer_fn(struct poor_loop *loop, struct poor_loop_timer *timer);
 
 /*
  * Software timer.
  *
  * 'deadline' is an absolute CLOCK_MONOTONIC timestamp in nanoseconds (see
- * poor_loop_now()). The timer is automatically disarmed before fire() runs, so
- * the callback is free to re-arm it.
+ * poor_loop_now()). The timer is automatically disarmed before fire() runs, so the
+ * callback is free to re-arm it.
  *
  * An armed timer must be disarmed before it is freed.
  */
@@ -35,8 +34,7 @@ poor_list_define(poor_loop_timer_list, struct poor_loop_timer, link);
 
 #define POOR_LOOP_TIMER_INIT(fn) { .link = {}, .deadline = 0, .fire = (fn) }
 
-static inline void poor_loop_timer_init(struct poor_loop_timer *timer,
-					poor_loop_timer_fn *fire)
+static inline void poor_loop_timer_init(struct poor_loop_timer *timer, poor_loop_timer_fn *fire)
 {
 	struct poor_loop_timer init = POOR_LOOP_TIMER_INIT(fire);
 
@@ -68,8 +66,7 @@ static inline uint64_t poor_loop_now(void)
  * Arm or re-arm a timer. Timers with equal deadlines fire in the order they
  * were armed.
  */
-void poor_loop_timer_arm(struct poor_loop *loop, struct poor_loop_timer *timer,
-			 uint64_t deadline);
+void poor_loop_timer_arm(struct poor_loop *loop, struct poor_loop_timer *timer, uint64_t deadline);
 
 #ifdef __cplusplus
 }

@@ -12,9 +12,7 @@ int poor_loop_check_sq_space_or_submit(struct poor_loop *loop, unsigned n)
 
 	if (uring_likely(space >= n))
 		return 0;
-	poor_loop_log(loop,
-		      "SQ has %u of %u entries free, %u needed: submitting",
-		      space, loop->ring.sq.ring_entries, n);
+	poor_loop_log(loop, "SQ has %u of %u entries free, %u needed: submitting", space, loop->ring.sq.ring_entries, n);
 	do {
 		ret = io_uring_submit(&loop->ring);
 		if (ret >= 0)
@@ -25,8 +23,7 @@ int poor_loop_check_sq_space_or_submit(struct poor_loop *loop, unsigned n)
 	return 0;
 }
 
-struct io_uring_sqe *poor_loop_get_sqe(struct poor_loop *loop,
-				       struct poor_loop_op *op)
+struct io_uring_sqe *poor_loop_get_sqe(struct poor_loop *loop, struct poor_loop_op *op)
 {
 	struct io_uring_sqe *sqe;
 
@@ -56,8 +53,7 @@ struct io_uring_sqe *poor_loop_get_untracked_sqe(struct poor_loop *loop)
 	return sqe;
 }
 
-struct io_uring_sqe *
-poor_loop_get_untracked_sqe_or_submit(struct poor_loop *loop)
+struct io_uring_sqe *poor_loop_get_untracked_sqe_or_submit(struct poor_loop *loop)
 {
 	struct io_uring_sqe *sqe = poor_loop_get_untracked_sqe(loop);
 	int ret;
@@ -72,8 +68,7 @@ poor_loop_get_untracked_sqe_or_submit(struct poor_loop *loop)
 	return poor_loop_get_untracked_sqe(loop);
 }
 
-struct io_uring_sqe *poor_loop_get_sqe_or_submit(struct poor_loop *loop,
-						 struct poor_loop_op *op)
+struct io_uring_sqe *poor_loop_get_sqe_or_submit(struct poor_loop *loop, struct poor_loop_op *op)
 {
 	struct io_uring_sqe *sqe = poor_loop_get_sqe(loop, op);
 	int ret;
