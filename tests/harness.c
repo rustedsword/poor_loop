@@ -18,13 +18,13 @@ uint64_t tick_order;
 
 [[noreturn]] void fail(const char *file, int line, const char *expr)
 {
-	fprintf(stderr, "%s:%d: [%s] check failed: %s\n", file, line, mode->name, expr);
+	printerrln(file, ":", line, ": [", mode->name, "] check failed: ", expr);
 	exit(1);
 }
 
 [[noreturn]] void fail_eq(const char *file, int line, const char *a, const char *b, long long va, long long vb)
 {
-	fprintf(stderr, "%s:%d: [%s] check failed: %s == %s (%lld != %lld)\n", file, line, mode->name, a, b, va, vb);
+	printerrln(file, ":", line, ": [", mode->name, "] check failed: ", a, " == ", b, " (", va, " != ", vb, ")");
 	exit(1);
 }
 
@@ -173,19 +173,19 @@ static int run_test(const struct test *test)
 	int ret = test->fn();
 
 	CHECK_EQ(count_fds(), fds);
-	printf("%s %s.%s\n", ret == SKIP ? "SKIP" : "PASS", mode->name, test->name);
+	println(ret == SKIP ? "SKIP" : "PASS", " ", mode->name, ".", test->name);
 	return ret;
 }
 
 [[noreturn]] static void usage(size_t count, const struct test (*tests)[count])
 {
-	fprintf(stderr, "usage: test_loop MODE [TEST]\nmodes:");
+	printerr("usage: test_loop MODE [TEST]\nmodes:");
 	foreach_array_ref(modes, m)
-		fprintf(stderr, " %s", m->name);
-	fprintf(stderr, "\ntests:");
+		printerr(" ", m->name);
+	printerr("\ntests:");
 	foreach_array_ref(tests, test)
-		fprintf(stderr, " %s", test->name);
-	fputc('\n', stderr);
+		printerr(" ", test->name);
+	printerr((char)'\n');
 	exit(2);
 }
 
@@ -224,7 +224,7 @@ int _run_tests(size_t argc, char *(*argv)[argc], size_t count, const struct test
 
 	ret = probe_mode();
 	if (ret) {
-		printf("SKIP %s: %s\n", mode->name, strerror(-ret));
+		println("SKIP ", mode->name, ": ", strerror(-ret));
 		return SKIP;
 	}
 	if (test)

@@ -12,7 +12,7 @@ int poor_loop_check_sq_space_or_submit(struct poor_loop *loop, unsigned n)
 
 	if (uring_likely(space >= n))
 		return 0;
-	poor_loop_log(loop, "SQ has %u of %u entries free, %u needed: submitting", space, loop->ring.sq.ring_entries, n);
+	poor_loop_log(loop, "SQ has ", space, " of ", loop->ring.sq.ring_entries, " entries free, ", n, " needed: submitting");
 	do {
 		ret = io_uring_submit(&loop->ring);
 		if (ret >= 0)

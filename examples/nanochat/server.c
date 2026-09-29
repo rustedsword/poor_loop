@@ -6,6 +6,7 @@
 #include <netinet/in.h>
 #include <poor_array.h>
 #include <poor_loop.h>
+#include <poor_stdio.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -75,7 +76,7 @@ static void reserve(struct poor_loop *loop, unsigned n)
 	int ret = poor_loop_check_sq_space_or_submit(loop, n);
 
 	if (ret) {
-		fprintf(stderr, "poor_loop_check_sq_space_or_submit: %s\n", strerror(-ret));
+		printerrln("poor_loop_check_sq_space_or_submit: ", strerror(-ret));
 		exit(1);
 	}
 }
@@ -91,7 +92,7 @@ static bool check(struct poor_loop *loop, const struct io_uring_cqe *cqe, const 
 	if (cqe->res >= 0)
 		return true;
 	if (cqe->res != -ECANCELED)
-		fprintf(stderr, "%s: %s\n", what, strerror(-cqe->res));
+		printerrln(what, ": ", strerror(-cqe->res));
 	status = 1;
 	poor_loop_stop(loop);
 	return false;
@@ -342,7 +343,7 @@ static void on_accept(struct poor_loop *loop, struct poor_loop_op *op, const str
 		return;
 	}
 	if (cqe->res < 0) {
-		fprintf(stderr, "accept: %s\n", strerror(-cqe->res));
+		printerrln("accept: ", strerror(-cqe->res));
 		if (!op->pending)
 			poor_loop_timer_arm(loop, &accept_timer, poor_loop_now() + ACCEPT_RETRY_NS);
 		return;
@@ -359,7 +360,7 @@ static void on_accept(struct poor_loop *loop, struct poor_loop_op *op, const str
 		nclients++;
 		client_recv(loop, c);
 	} else {
-		fputs("out of memory\n", stderr);
+		printerrln("out of memory");
 		fd_close(loop, cqe->res);
 	}
 	if (!op->pending)
@@ -426,7 +427,7 @@ int main(int argc, char **argv)
 	int ret;
 
 	if (port < 0) {
-		fprintf(stderr, "usage: %s [PORT]\n", argv[0]);
+		printerrln("usage: ", argv[0], " [PORT]");
 		return 1;
 	}
 	addr.sin_port = htons(port);
@@ -441,19 +442,19 @@ int main(int argc, char **argv)
 	}
 	ret = poor_loop_init(&loop, 256, &params);
 	if (ret) {
-		fprintf(stderr, "poor_loop_init: %s\n", strerror(-ret));
+		printerrln("poor_loop_init: ", strerror(-ret));
 		return 1;
 	}
 	buf_ring = io_uring_setup_buf_ring(poor_loop_ring(&loop), BUF_COUNT, 0, 0, &ret);
 	if (!buf_ring) {
-		fprintf(stderr, "io_uring_setup_buf_ring: %s\n", strerror(-ret));
+		printerrln("io_uring_setup_buf_ring: ", strerror(-ret));
 		return 1;
 	}
 	foreach_array_index(bufs, i)
 		buf_recycle(i);
 	ret = io_uring_register_files_sparse(poor_loop_ring(&loop), 1);
 	if (ret) {
-		fprintf(stderr, "io_uring_register_files_sparse: %s\n", strerror(-ret));
+		printerrln("io_uring_register_files_sparse: ", strerror(-ret));
 		return 1;
 	}
 	listen_start(&loop);

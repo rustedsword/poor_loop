@@ -10,7 +10,7 @@ void poor_loop_log_function_set(poor_loop_log_fn *fn)
 	log_fn = fn;
 }
 
-void poor_loop_log(struct poor_loop *loop, const char *fmt, ...)
+void poor_loop_logf(struct poor_loop *loop, const char *fmt, ...)
 {
 	va_list ap;
 

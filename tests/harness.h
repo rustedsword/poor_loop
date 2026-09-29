@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <poor_array.h>
 #include <poor_loop.h>
+#include <poor_stdio.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>

@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <poor_array.h>
 #include <poor_loop.h>
+#include <poor_stdio.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,7 +43,7 @@ static bool check(struct poor_loop *loop, const struct io_uring_cqe *cqe, const 
 	if (cqe->res >= 0)
 		return true;
 	if (cqe->res != -ECANCELED)
-		fprintf(stderr, "%s: %s\n", what, strerror(-cqe->res));
+		printerrln(what, ": ", strerror(-cqe->res));
 	status = 1;
 	poor_loop_stop(loop);
 	return false;
@@ -81,7 +82,7 @@ static void on_read(struct poor_loop *loop, struct poor_loop_op *op, const struc
 		return;
 	if (!cqe->res) {
 		if (r == &down) {
-			fputs("server closed the connection\n", stderr);
+			printerrln("server closed the connection");
 			status = 1;
 		}
 		poor_loop_stop(loop);
@@ -126,7 +127,7 @@ static void connect_start(struct poor_loop *loop)
 	int ret = poor_loop_check_sq_space_or_submit(loop, 2);
 
 	if (ret) {
-		fprintf(stderr, "poor_loop_check_sq_space_or_submit: %s\n", strerror(-ret));
+		printerrln("poor_loop_check_sq_space_or_submit: ", strerror(-ret));
 		exit(1);
 	}
 	sqe = get_sqe(loop, &socket_op);
@@ -146,23 +147,23 @@ int main(int argc, char **argv)
 	int ret;
 
 	if (argc < 2 || !*argv[1] || port < 0) {
-		fprintf(stderr, "usage: %s NICK [HOST [PORT]]\n", argv[0]);
+		printerrln("usage: ", argv[0], " NICK [HOST [PORT]]");
 		return 1;
 	}
 	addr.sin_port = htons(port);
 	if (inet_pton(AF_INET, argc > 2 ? argv[2] : "127.0.0.1", &addr.sin_addr) != 1) {
-		fprintf(stderr, "HOST must be a numeric IPv4 address\n");
+		printerrln("HOST must be a numeric IPv4 address");
 		return 1;
 	}
 	signal(SIGPIPE, SIG_IGN);
 	ret = poor_loop_init(&loop, 16, &params);
 	if (ret) {
-		fprintf(stderr, "poor_loop_init: %s\n", strerror(-ret));
+		printerrln("poor_loop_init: ", strerror(-ret));
 		return 1;
 	}
 	ret = io_uring_register_files(poor_loop_ring(&loop), files, ARRAY_SIZE(files));
 	if (ret) {
-		fprintf(stderr, "io_uring_register_files: %s\n", strerror(-ret));
+		printerrln("io_uring_register_files: ", strerror(-ret));
 		return 1;
 	}
 
@@ -170,7 +171,7 @@ int main(int argc, char **argv)
 			     .write_op = POOR_LOOP_OP_INIT(on_write),
 			     .from = STDIN_SLOT,
 			     .to = SOCK_SLOT };
-	up.len = snprintf(up.buf, ARRAY_SIZE_BYTES(up.buf), "%.32s\n", argv[1]);
+	up.len = sprintln_array(up.buf, fmt_p(argv[1], 32));
 	down = (struct relay){ .read_op = POOR_LOOP_OP_INIT(on_read),
 			       .write_op = POOR_LOOP_OP_INIT(on_write),
 			       .from = SOCK_SLOT,

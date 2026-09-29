@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: MIT */
 #define _GNU_SOURCE
 
-#include <inttypes.h>
 #include <poor_array.h>
 #include <poor_loop.h>
+#include <poor_stdio.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,8 +36,8 @@ static struct stats summarize(unsigned count, int64_t (*values)[count])
 
 static void print_stats(const char *what, struct stats s)
 {
-	printf("  %-26s: min=%" PRId64 "us p50=%" PRId64 "us p99=%" PRId64 "us max=%" PRId64 "us\n", what, s.min / 1000,
-	       s.p50 / 1000, s.p99 / 1000, s.max / 1000);
+	println("  ", fmt_w(what, -26), ": min=", s.min / 1000, "us p50=", s.p50 / 1000, "us p99=", s.p99 / 1000,
+		"us max=", s.max / 1000, "us");
 }
 
 static void nothing(struct poor_loop *, struct poor_loop_timer *)
@@ -49,7 +49,7 @@ static void run(struct poor_loop *loop)
 	int ret = poor_loop_run(loop);
 
 	if (ret) {
-		fprintf(stderr, "poor_loop_run: %s\n", strerror(-ret));
+		printerrln("poor_loop_run: ", strerror(-ret));
 		exit(1);
 	}
 }
@@ -70,7 +70,7 @@ static void bench_insert(struct poor_loop *loop, unsigned max_timers, unsigned r
 	struct poor_loop_timer(*timers)[max_timers] = calloc_array(timers);
 	struct poor_loop_timer spare = POOR_LOOP_TIMER_INIT(nothing);
 
-	puts("arm cost, nanoseconds per poor_loop_timer_arm:");
+	println("arm cost, nanoseconds per poor_loop_timer_arm:");
 	for (unsigned count = 1; count <= max_timers; count *= 8) {
 		uint64_t base = poor_loop_now() + 10 * NS_PER_SEC;
 		make_arrview_first(armed, count, timers);
@@ -83,7 +83,7 @@ static void bench_insert(struct poor_loop *loop, unsigned max_timers, unsigned r
 		tail = arm_cost(loop, &spare, base + count * NS_PER_MS, rounds);
 		head = arm_cost(loop, &spare, 1, rounds);
 		median = arm_cost(loop, &spare, base + count / 2 * NS_PER_MS + 1, rounds);
-		printf("  armed=%-4u tail=%" PRIu64 "ns head=%" PRIu64 "ns median=%" PRIu64 "ns\n", count, tail, head, median);
+		println("  armed=", fmt_w(count, -4), " tail=", tail, "ns head=", head, "ns median=", median, "ns");
 		foreach_array_ref(armed, timer)
 			poor_loop_timer_disarm(timer);
 	}
@@ -152,7 +152,7 @@ static void bench_latency(struct poor_loop *loop, uint64_t delay, unsigned sampl
 	struct io_uring ring;
 
 	io_uring_queue_init(64, &ring, 0);
-	printf("firing error at a %" PRIu64 "us deadline, n=%u:\n", delay / NS_PER_US, samples);
+	println("firing error at a ", delay / NS_PER_US, "us deadline, n=", samples, ":");
 	bench_loop_timer(loop, delay, samples, errors);
 	print_stats("poor_loop_timer (wait timeout)", summarize(samples, errors));
 	bench_uring_abs(&ring, delay, samples, errors);
@@ -198,7 +198,7 @@ static bool check_order(struct poor_loop *loop)
 		poor_loop_timer_arm(loop, &timers[i].timer, deadlines[i]);
 	poor_loop_timer_arm(loop, &timers[1].timer, base + 5 * NS_PER_MS);
 	run(loop);
-	printf("deadline order: fired %u%s\n", order, order == 123 ? " (ok)" : " (WRONG)");
+	println("deadline order: fired ", order, order == 123 ? " (ok)" : " (WRONG)");
 	return order == 123;
 }
 
