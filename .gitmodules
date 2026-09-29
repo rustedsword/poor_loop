@@ -10,3 +10,6 @@
 [submodule "refs/libreactorng"]
 	path = refs/libreactorng
 	url = https://github.com/fredrikwidlund/libreactorng.git
+[submodule "subprojects/poor_base"]
+	path = subprojects/poor_base
+	url = https://github.com/rustedsword/poor_base.git

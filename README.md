@@ -4,7 +4,9 @@ Minimal completion-callback event loop on top of liburing.
 
 ## Build
 
-Requires Linux, a C23 compiler, Meson 1.4 and liburing 2.3 or newer.
+Requires Linux, a C23 compiler, Meson 1.4, liburing 2.3 and
+[poor_base](https://github.com/rustedsword/poor_base) 0.1 or newer. If
+poor_base is not installed, the `subprojects/poor_base` submodule is used.
 
 ```sh
 meson setup build
