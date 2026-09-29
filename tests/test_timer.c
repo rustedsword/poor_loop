@@ -255,7 +255,7 @@ static uint32_t xorshift(uint32_t *state)
 
 static int test_timer_sorted(void)
 {
-	typeof(struct stamped[TIMERS]) *timers = calloc_array(timers);
+	struct stamped(*timers)[TIMERS] = calloc_array(timers);
 	struct poor_loop_timer stopper = POOR_LOOP_TIMER_INIT(halt);
 	unsigned armed = 0, seq = 0, step;
 	struct poor_loop loop;

@@ -67,7 +67,7 @@ static uint64_t arm_cost(struct poor_loop *loop, struct poor_loop_timer *spare, 
 
 static void bench_insert(struct poor_loop *loop, unsigned max_timers, unsigned rounds)
 {
-	typeof(struct poor_loop_timer[max_timers]) *timers = calloc_array(timers);
+	struct poor_loop_timer(*timers)[max_timers] = calloc_array(timers);
 	struct poor_loop_timer spare = POOR_LOOP_TIMER_INIT(nothing);
 
 	puts("arm cost, nanoseconds per poor_loop_timer_arm:");

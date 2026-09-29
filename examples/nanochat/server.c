@@ -182,8 +182,7 @@ static void _client_send(struct poor_loop *loop, struct client *c, size_t len, c
 		client_drop(loop, c);
 		return;
 	}
-	make_arrview(tail, c->out_len, len, c->out);
-	copy_array(tail, data);
+	copy_array(arrview(c->out_len, len, c->out), data);
 	c->out_len += len;
 	if (!c->send_op.pending)
 		client_flush(loop, c);
@@ -198,9 +197,8 @@ static void _client_send(struct poor_loop *loop, struct client *c, size_t len, c
  */
 static void client_line(struct poor_loop *loop, struct client *c)
 {
-	char msg[ARRAY_SIZE(c->nick) + 2 + ARRAY_SIZE(c->in) + 1];
-	size_t n = c->in_len, len = c->nick_len + 2 + n + 1;
 	uint64_t now = poor_loop_now();
+	size_t n = c->in_len;
 
 	c->in_len = 0;
 	if (!n)
@@ -220,10 +218,10 @@ static void client_line(struct poor_loop *loop, struct client *c)
 	make_arrview_first(nick, c->nick_len, c->nick);
 	make_arrview_str(sep, ": ");
 	make_arrview_str(nl, "\n");
-	copy_arrays(msg, nick, sep, line, nl);
+	make_merged_array(msg, nick, sep, line, nl);
 	poor_list_foreach_safe(&clients, o)
 		if (o != c)
-			client_send(loop, o, arrview_first(len, msg));
+			client_send(loop, o, msg);
 }
 
 /*

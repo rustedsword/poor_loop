@@ -87,7 +87,7 @@ static int test_resubmit(void)
 
 static int test_sq_full(void)
 {
-	typeof(struct rec[MANY]) *recs = calloc_array(recs);
+	struct rec(*recs)[MANY] = calloc_array(recs);
 	struct poor_loop loop;
 
 	CHECK(recs);
