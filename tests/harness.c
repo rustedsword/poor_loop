@@ -108,7 +108,7 @@ void drain_ops(struct chio_loop *loop, size_t count,
 void rec_complete(struct chio_loop *loop, struct chio_op *op,
 		  const struct io_uring_cqe *cqe)
 {
-	struct rec *rec = chio_container_of(op, struct rec, op);
+	struct rec *rec = container_of(op, struct rec, op);
 
 	CHECK_EQ(op->pending, !!(cqe->flags & IORING_CQE_F_MORE));
 	CHECK(io_uring_cqe_get_data(cqe) == op);
@@ -135,7 +135,7 @@ void stop_complete(struct chio_loop *loop, struct chio_op *op,
 
 void tick_fire(struct chio_loop *, struct chio_timer *timer)
 {
-	struct tick *tick = chio_container_of(timer, struct tick, timer);
+	struct tick *tick = container_of(timer, struct tick, timer);
 
 	tick->fired++;
 	tick->armed = chio_timer_armed(timer);

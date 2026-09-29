@@ -8,7 +8,7 @@
 int chio_loop_init(struct chio_loop *loop, unsigned entries,
 		   struct io_uring_params *params)
 {
-	chio_list_init(&loop->timers);
+	poor_list_init(&loop->timers);
 	loop->stop = false;
 	return io_uring_queue_init_params(entries, &loop->ring, params);
 }

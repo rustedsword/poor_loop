@@ -34,7 +34,6 @@ meson.override_dependency('chioloop', chioloop_dep)
 
 install_headers(
   'include/chioloop.h',
-  'include/chio_list.h',
   'include/chio_log.h',
   'include/chio_loop.h',
   'include/chio_op.h',
@@ -44,7 +43,8 @@ install_headers(
 import('pkgconfig').generate(
   chioloop,
   description: 'Minimal io_uring event loop',
-  requires: liburing,
+  # A string, since Meson leaves a header-only fallback dependency out
+  requires: [liburing, 'poor_base >=0.1'],
 )
 
 if not meson.is_subproject()

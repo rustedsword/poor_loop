@@ -73,7 +73,7 @@ struct pair {
 
 static void disarm_second(struct chio_loop *loop, struct chio_timer *timer)
 {
-	struct pair *pair = chio_container_of(timer, struct pair, first.timer);
+	struct pair *pair = container_of(timer, struct pair, first.timer);
 
 	tick_fire(loop, timer);
 	chio_timer_disarm(&pair->second.timer);
@@ -134,7 +134,7 @@ static int test_timer_rearm(void)
 
 static void periodic_fire(struct chio_loop *loop, struct chio_timer *timer)
 {
-	struct tick *tick = chio_container_of(timer, struct tick, timer);
+	struct tick *tick = container_of(timer, struct tick, timer);
 
 	tick_fire(loop, timer);
 	CHECK(tick->at >= timer->deadline);
@@ -216,8 +216,7 @@ static unsigned fired_seq, fired_count;
 
 static void stamped_fire(struct chio_loop *, struct chio_timer *timer)
 {
-	struct stamped *stamped = chio_container_of(timer, struct stamped,
-						    timer);
+	struct stamped *stamped = container_of(timer, struct stamped, timer);
 
 	CHECK(timer->deadline >= fired_deadline);
 	if (timer->deadline == fired_deadline)
@@ -229,13 +228,12 @@ static void stamped_fire(struct chio_loop *, struct chio_timer *timer)
 
 static void check_sorted(struct chio_loop *loop, unsigned armed)
 {
-	struct chio_timer *timer;
 	uint64_t deadline = 0;
 	unsigned count = 0, seq = 0;
 
-	chio_list_for_each(timer, &loop->timers, link) {
+	poor_list_foreach(&loop->timers, timer) {
 		struct stamped *stamped =
-			chio_container_of(timer, struct stamped, timer);
+			container_of(timer, struct stamped, timer);
 
 		CHECK(timer->deadline >= deadline);
 		if (timer->deadline == deadline)
@@ -289,7 +287,7 @@ static int test_timer_sorted(void)
 	chio_timer_arm(&loop, &stopper, 1'000);
 	CHECK_EQ(chio_loop_run(&loop), 0);
 	CHECK_EQ(fired_count, armed);
-	CHECK(chio_list_empty(&loop.timers));
+	CHECK(poor_list_empty(&loop.timers));
 	chio_loop_exit(&loop);
 	free(timers);
 	return 0;

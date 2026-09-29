@@ -17,7 +17,7 @@
  * Lines are stored without control characters and without the newline.
  */
 struct client {
-	struct chio_list link;
+	struct poor_list_node link;
 	struct chio_op recv_op;
 	struct chio_op send_op;
 	int fd;
@@ -28,6 +28,8 @@ struct client {
 	char in[1024];
 	char out[65536];
 };
+
+poor_list_define(client_list, struct client, link);
 
 struct step {
 	struct chio_op op;
@@ -43,7 +45,7 @@ constexpr uint64_t FLOOD_BURST_NS = 10 * LINE_COST_NS;
 
 static char bufs[BUF_COUNT][BUF_SIZE];
 static struct io_uring_buf_ring *buf_ring;
-static struct chio_list clients;
+static client_list clients = POOR_LIST_INIT(clients);
 static struct sockaddr_in addr = { .sin_family = AF_INET };
 static struct signalfd_siginfo siginfo;
 static sigset_t signals;
@@ -104,6 +106,17 @@ static int parse_port(const char *s)
 	return *s && !*end && port && port <= 65535 ? (int)port : -1;
 }
 
+static bool client_linked(const struct client *c)
+{
+	return c->link.next != nullptr;
+}
+
+static void client_unlink(struct client *c)
+{
+	poor_list_remove(&clients, c);
+	c->link.next = nullptr;
+}
+
 /*
  * Pending recv and send keep the socket alive, so closing the fd would not end
  * them; the shutdown does. The hard link runs close even if shutdown fails,
@@ -113,9 +126,9 @@ static void client_drop(struct chio_loop *loop, struct client *c)
 {
 	struct io_uring_sqe *sqe;
 
-	if (!chio_list_linked(&c->link))
+	if (!client_linked(c))
 		return;
-	chio_list_remove(&c->link);
+	client_unlink(c);
 	reserve(loop, 2);
 	sqe = chio_get_untracked_sqe(loop);
 	io_uring_prep_shutdown(sqe, c->fd, SHUT_RDWR);
@@ -189,7 +202,6 @@ static void client_line(struct chio_loop *loop, struct client *c)
 	char msg[sizeof(c->nick) + 2 + sizeof(c->in) + 1];
 	size_t n = c->in_len, len = c->nick_len + 2 + n + 1;
 	uint64_t now = chio_now();
-	struct client *o, *tmp;
 
 	c->in_len = 0;
 	if (!c->has_nick) {
@@ -209,7 +221,7 @@ static void client_line(struct chio_loop *loop, struct client *c)
 	memcpy(msg + c->nick_len, ": ", 2);
 	memcpy(msg + c->nick_len + 2, c->in, n);
 	msg[len - 1] = '\n';
-	chio_list_for_each_safe(o, tmp, &clients, link)
+	poor_list_foreach_safe(&clients, o)
 		if (o != c)
 			client_send(loop, o, msg, len);
 }
@@ -224,7 +236,7 @@ static void client_input(struct chio_loop *loop, struct client *c,
 {
 	unsigned char ch;
 
-	for (; len && chio_list_linked(&c->link); data++, len--) {
+	for (; len && client_linked(c); data++, len--) {
 		ch = *data;
 		if (ch == '\n') {
 			client_line(loop, c);
@@ -261,9 +273,9 @@ static void buf_recycle(unsigned id)
 static void on_send(struct chio_loop *loop, struct chio_op *op,
 		    const struct io_uring_cqe *cqe)
 {
-	struct client *c = chio_container_of(op, struct client, send_op);
+	struct client *c = container_of(op, struct client, send_op);
 
-	if (cqe->res < 0 || !chio_list_linked(&c->link)) {
+	if (cqe->res < 0 || !client_linked(c)) {
 		client_drop(loop, c);
 		client_release(loop, c);
 		return;
@@ -277,18 +289,18 @@ static void on_send(struct chio_loop *loop, struct chio_op *op,
 static void on_recv(struct chio_loop *loop, struct chio_op *op,
 		    const struct io_uring_cqe *cqe)
 {
-	struct client *c = chio_container_of(op, struct client, recv_op);
+	struct client *c = container_of(op, struct client, recv_op);
 	unsigned id;
 
 	if (cqe->flags & IORING_CQE_F_BUFFER) {
 		id = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
-		if (cqe->res > 0 && chio_list_linked(&c->link))
+		if (cqe->res > 0 && client_linked(c))
 			client_input(loop, c, bufs[id], cqe->res);
 		buf_recycle(id);
 	}
 	if (op->pending)
 		return;
-	if ((cqe->res > 0 || cqe->res == -ENOBUFS) && chio_list_linked(&c->link)) {
+	if ((cqe->res > 0 || cqe->res == -ENOBUFS) && client_linked(c)) {
 		client_recv(loop, c);
 		return;
 	}
@@ -347,7 +359,7 @@ static void on_accept(struct chio_loop *loop, struct chio_op *op,
 		c->has_nick = false;
 		c->flood = 0;
 		c->nick_len = c->in_len = c->out_len = 0;
-		chio_list_append(&clients, &c->link);
+		poor_list_append(&clients, c);
 		nclients++;
 		client_recv(loop, c);
 	} else {
@@ -361,7 +373,7 @@ static void on_accept(struct chio_loop *loop, struct chio_op *op,
 static void on_step(struct chio_loop *loop, struct chio_op *op,
 		    const struct io_uring_cqe *cqe)
 {
-	check(loop, cqe, chio_container_of(op, struct step, op)->name);
+	check(loop, cqe, container_of(op, struct step, op)->name);
 }
 
 static struct step steps[] = {
@@ -399,8 +411,6 @@ static void listen_start(struct chio_loop *loop)
 static void on_signal(struct chio_loop *loop, struct chio_op *,
 		      const struct io_uring_cqe *cqe)
 {
-	struct client *c, *tmp;
-
 	if (!check(loop, cqe, "signalfd"))
 		return;
 	sigprocmask(SIG_UNBLOCK, &signals, nullptr);
@@ -411,7 +421,7 @@ static void on_signal(struct chio_loop *loop, struct chio_op *,
 		io_uring_prep_cancel(chio_get_untracked_sqe(loop), &accept_op, 0);
 	io_uring_prep_close_direct(chio_get_untracked_sqe(loop), LISTEN_SLOT);
 	io_uring_prep_close(chio_get_untracked_sqe(loop), signal_fd);
-	chio_list_for_each_safe(c, tmp, &clients, link)
+	poor_list_foreach_safe(&clients, c)
 		client_drop(loop, c);
 	shutdown_finish(loop);
 }
@@ -457,7 +467,6 @@ int main(int argc, char **argv)
 			strerror(-ret));
 		return 1;
 	}
-	chio_list_init(&clients);
 	listen_start(&loop);
 	io_uring_prep_read(get_sqe(&loop, &signal_op), signal_fd, &siginfo,
 			   sizeof(siginfo), -1);

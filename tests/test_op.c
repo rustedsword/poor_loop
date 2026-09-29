@@ -416,8 +416,7 @@ struct poll_cancel {
 static void poll_complete(struct chio_loop *loop, struct chio_op *op,
 			  const struct io_uring_cqe *cqe)
 {
-	struct poll_cancel *pc = chio_container_of(op, struct poll_cancel,
-						   poll.op);
+	struct poll_cancel *pc = container_of(op, struct poll_cancel, poll.op);
 
 	rec_complete(loop, op, cqe);
 	if (!(cqe->flags & IORING_CQE_F_MORE) || pc->poll.more != 1)
@@ -581,7 +580,7 @@ struct heap_op {
 static void heap_complete(struct chio_loop *loop, struct chio_op *op,
 			  const struct io_uring_cqe *cqe)
 {
-	struct heap_op *heap = chio_container_of(op, struct heap_op, op);
+	struct heap_op *heap = container_of(op, struct heap_op, op);
 	int *freed = heap->freed;
 
 	CHECK_EQ(cqe->res, 0);

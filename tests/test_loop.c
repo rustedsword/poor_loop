@@ -75,7 +75,7 @@ struct storm {
 static void storm_complete(struct chio_loop *loop, struct chio_op *op,
 			   const struct io_uring_cqe *cqe)
 {
-	struct storm *storm = chio_container_of(op, struct storm, rec.op);
+	struct storm *storm = container_of(op, struct storm, rec.op);
 
 	rec_complete(loop, op, cqe);
 	if (storm->rec.calls == 3)

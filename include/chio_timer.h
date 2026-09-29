@@ -2,10 +2,9 @@
 #ifndef CHIO_TIMER_H
 #define CHIO_TIMER_H
 
+#include <poor_list.h>
 #include <stdint.h>
 #include <time.h>
-
-#include "chio_list.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,10 +25,12 @@ typedef void chio_timer_fn(struct chio_loop *loop, struct chio_timer *timer);
  * An armed timer must be disarmed before it is freed.
  */
 struct chio_timer {
-	struct chio_list link;
+	struct poor_list_node link;
 	uint64_t deadline;
 	chio_timer_fn *fire;
 };
+
+poor_list_define(chio_timer_list, struct chio_timer, link);
 
 #define CHIO_TIMER_INIT(fn) { .link = {}, .deadline = 0, .fire = (fn) }
 
@@ -43,13 +44,15 @@ static inline void chio_timer_init(struct chio_timer *timer,
 
 static inline bool chio_timer_armed(const struct chio_timer *timer)
 {
-	return chio_list_linked(&timer->link);
+	return timer->link.next != nullptr;
 }
 
 static inline void chio_timer_disarm(struct chio_timer *timer)
 {
-	if (chio_timer_armed(timer))
-		chio_list_remove(&timer->link);
+	if (chio_timer_armed(timer)) {
+		poor_list_node_remove(&timer->link);
+		timer->link.next = nullptr;
+	}
 }
 
 static inline uint64_t chio_now(void)

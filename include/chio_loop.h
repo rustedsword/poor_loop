@@ -4,7 +4,7 @@
 
 #include <liburing.h>
 
-#include "chio_list.h"
+#include "chio_timer.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -12,7 +12,7 @@ extern "C" {
 
 struct chio_loop {
 	struct io_uring ring;
-	struct chio_list timers;
+	chio_timer_list timers;
 	bool stop;
 };
 

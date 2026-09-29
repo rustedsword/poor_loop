@@ -101,7 +101,7 @@ struct probe {
 
 static void probe_fire(struct chio_loop *loop, struct chio_timer *timer)
 {
-	chio_container_of(timer, struct probe, timer)->fired = chio_now();
+	container_of(timer, struct probe, timer)->fired = chio_now();
 	chio_loop_stop(loop);
 }
 
@@ -182,8 +182,7 @@ static unsigned fired, order;
 
 static void note_order(struct chio_loop *loop, struct chio_timer *timer)
 {
-	struct ordered *ordered = chio_container_of(timer, struct ordered,
-						    timer);
+	struct ordered *ordered = container_of(timer, struct ordered, timer);
 
 	order = order * 10 + ordered->id;
 	if (++fired == 3)

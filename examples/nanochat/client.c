@@ -75,7 +75,7 @@ static void relay_write(struct chio_loop *loop, struct relay *r)
 static void on_read(struct chio_loop *loop, struct chio_op *op,
 		    const struct io_uring_cqe *cqe)
 {
-	struct relay *r = chio_container_of(op, struct relay, read_op);
+	struct relay *r = container_of(op, struct relay, read_op);
 
 	if (!check(loop, cqe, "read"))
 		return;
@@ -95,7 +95,7 @@ static void on_read(struct chio_loop *loop, struct chio_op *op,
 static void on_write(struct chio_loop *loop, struct chio_op *op,
 		     const struct io_uring_cqe *cqe)
 {
-	struct relay *r = chio_container_of(op, struct relay, write_op);
+	struct relay *r = container_of(op, struct relay, write_op);
 
 	if (!check(loop, cqe, "write"))
 		return;
