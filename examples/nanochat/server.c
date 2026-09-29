@@ -14,7 +14,8 @@
 
 /*
  * The first line a client sends is its nick; every later line is a message.
- * Lines are stored without control characters and without the newline.
+ * Lines are stored without control characters and without the newline, and
+ * empty lines are ignored.
  */
 struct client {
 	struct poor_list_node link;
@@ -198,14 +199,14 @@ static void client_line(struct poor_loop *loop, struct client *c)
 	uint64_t now = poor_loop_now();
 
 	c->in_len = 0;
+	if (!n)
+		return;
 	if (!c->has_nick) {
 		c->has_nick = true;
 		c->nick_len = n < sizeof(c->nick) ? n : sizeof(c->nick);
 		memcpy(c->nick, c->in, c->nick_len);
 		return;
 	}
-	if (!n)
-		return;
 	c->flood = (c->flood > now ? c->flood : now) + LINE_COST_NS;
 	if (c->flood > now + FLOOD_BURST_NS) {
 		client_drop(loop, c);
