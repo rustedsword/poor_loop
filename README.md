@@ -8,8 +8,7 @@ registered files and buffers.
 ## Build
 
 Requires Linux, a C23 compiler, Meson 1.4+, liburing 2.3+ and
-[poor_base](https://github.com/rustedsword/poor_base). If poor_base is not
-installed, the `subprojects/poor_base` submodule is used.
+[poor_base](https://github.com/rustedsword/poor_base).
 
 ```sh
 meson setup build
