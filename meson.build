@@ -47,8 +47,11 @@ import('pkgconfig').generate(
   requires: [liburing, 'poor_base'],
 )
 
-if not meson.is_subproject()
+if get_option('tests')
   subdir('tests')
   subdir('tools')
+endif
+
+if get_option('examples')
   subdir('examples/nanochat')
 endif

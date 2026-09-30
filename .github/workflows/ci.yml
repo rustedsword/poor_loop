@@ -19,7 +19,7 @@ jobs:
         version: [15, 16]
         build: [sanitizers, release]
     env:
-      MESON_ARGS: -Dwerror=true ${{ matrix.build == 'sanitizers' && '-Dbuildtype=debug -Db_sanitize=address,undefined' || '-Dbuildtype=release' }}
+      MESON_ARGS: -Dwerror=true -Dtests=true -Dexamples=true ${{ matrix.build == 'sanitizers' && '-Dbuildtype=debug -Db_sanitize=address,undefined' || '-Dbuildtype=release' }}
     steps:
       - uses: actions/checkout@v5
       - name: Install dependencies
@@ -45,7 +45,7 @@ jobs:
         build: [sanitizers, release]
     env:
       CC: clang-${{ matrix.version }}
-      MESON_ARGS: -Dwerror=true ${{ matrix.build == 'sanitizers' && '-Dbuildtype=debug -Db_sanitize=address,undefined -Db_lundef=false' || '-Dbuildtype=release' }}
+      MESON_ARGS: -Dwerror=true -Dtests=true -Dexamples=true ${{ matrix.build == 'sanitizers' && '-Dbuildtype=debug -Db_sanitize=address,undefined -Db_lundef=false' || '-Dbuildtype=release' }}
     steps:
       - uses: actions/checkout@v5
       - name: Install dependencies

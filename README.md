@@ -15,6 +15,9 @@ meson setup build
 meson compile -C build
 ```
 
+Pass `-Dtests=true` to build the tests and run them with `meson test -C build`,
+and `-Dexamples=true` to build the examples.
+
 ## Example
 
 ```c
