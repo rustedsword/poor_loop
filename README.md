@@ -21,7 +21,7 @@ meson compile -C build
 #define _GNU_SOURCE
 
 #include <poor_loop.h>
-#include <stdio.h>
+#include <poor_stdio.h>
 
 static char buf[4096];
 
@@ -31,7 +31,7 @@ static void on_read(struct poor_loop *loop, struct poor_loop_op *op, const struc
 		poor_loop_stop(loop);
 		return;
 	}
-	fwrite(buf, 1, cqe->res, stdout);
+	fwrite_array(arrview_first(cqe->res, buf), stdout);
 	io_uring_prep_read_array(poor_loop_get_sqe_or_submit(loop, op), 0, buf, -1);
 }
 

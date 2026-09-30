@@ -12,7 +12,7 @@ static int logs, other_logs;
 static void log_record(struct poor_loop *loop, const char *fmt, va_list ap)
 {
 	logged_loop = loop;
-	vsnprintf(logged, ARRAY_SIZE_BYTES(logged), fmt, ap);
+	vsnprintf_array(logged, fmt, ap);
 	logs++;
 }
 
