@@ -1,26 +1,4 @@
-# poor_loop
-
-Minimal event loop on top of liburing: completion callbacks plus software
-timers. It does not hide the ring. Requests are prepared with plain liburing
-helpers, and `poor_loop_ring()` exposes the ring for anything else, such as
-registered files and buffers.
-
-## Build
-
-Requires Linux, a C23 compiler, Meson 1.4+, liburing 2.3+ and
-[poor_base](https://github.com/rustedsword/poor_base).
-
-```sh
-meson setup build
-meson compile -C build
-```
-
-Pass `-Dtests=true` to build the tests and run them with `meson test -C build`,
-and `-Dexamples=true` to build the examples.
-
-## Example
-
-```c
+/* SPDX-License-Identifier: MIT */
 #define _GNU_SOURCE
 
 #include <poor_loop.h>
@@ -66,4 +44,3 @@ int main(void)
 	poor_loop_exit(&loop);
 	return ret || failed;
 }
-```

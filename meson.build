@@ -53,5 +53,6 @@ if get_option('tests')
 endif
 
 if get_option('examples')
+  subdir('examples/cat')
   subdir('examples/nanochat')
 endif
