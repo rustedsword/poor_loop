@@ -19,7 +19,7 @@ static int test_init_exit(void)
 	memset(&loop, 0xa5, sizeof(loop));
 	CHECK_EQ(poor_loop_init(&loop, 8, &p), 0);
 	CHECK_EQ(poor_loop_ring(&loop)->sq.ring_entries, 8);
-	CHECK(!loop.stop);
+	CHECK(!poor_loop_stopped(&loop));
 	rec_init(&rec, rec_complete);
 	arm_nop(&loop, &rec.op);
 	drain(&loop, &rec.op);
@@ -132,6 +132,7 @@ static int test_run_error(void)
 	rec_init(&rec, rec_complete);
 	arm_nop(&loop, &rec.op);
 	CHECK_EQ(poor_loop_run(&loop), -EBADFD);
+	CHECK_EQ(poor_loop_run_once(&loop), -EBADFD);
 	CHECK(rec.op.pending);
 	enable_ring(&loop);
 	drain(&loop, &rec.op);
@@ -191,19 +192,23 @@ static int test_stop(void)
 	CHECK_EQ(stopper.calls, 1);
 	CHECK_EQ(reader.calls, 0);
 	CHECK(reader.op.pending);
-	CHECK(!loop.stop);
+	CHECK(poor_loop_stopped(&loop));
 
-	poor_loop_stop(&loop);
-	CHECK_EQ(poor_loop_run(&loop), 0);
-	CHECK(!loop.stop);
-	CHECK_EQ(reader.calls, 0);
-
-	reader.op.complete = stop_complete;
 	CHECK_EQ(write(fds[1], "x", 1), 1);
 	CHECK_EQ(poor_loop_run(&loop), 0);
+	CHECK_EQ(reader.calls, 0);
+
+	CHECK_EQ(poor_loop_run_once(&loop), 0);
 	CHECK_EQ(reader.calls, 1);
 	CHECK_EQ(reader.res, 1);
 	CHECK(!reader.op.pending);
+	CHECK(poor_loop_stopped(&loop));
+
+	poor_loop_clear_stop(&loop);
+	arm_nop(&loop, &stopper.op);
+	CHECK_EQ(poor_loop_run(&loop), 0);
+	CHECK_EQ(stopper.calls, 2);
+	CHECK(poor_loop_stopped(&loop));
 	poor_loop_exit(&loop);
 	close_pipe(&fds);
 	return 0;
@@ -266,6 +271,75 @@ static int test_eintr(void)
 	return 0;
 }
 
+static int test_run_once(void)
+{
+	struct rec reader, nop;
+	struct poor_loop loop;
+	struct tick tick;
+	uint64_t deadline;
+	char buf[8];
+	int fds[2];
+
+	make_pipe(&fds);
+	loop_init(&loop, 8);
+	rec_init(&reader, rec_complete);
+	rec_init(&nop, rec_complete);
+	arm_read(&loop, &reader.op, fds[0], buf);
+	arm_nop(&loop, &nop.op);
+	CHECK_EQ(poor_loop_run_once(&loop), 0);
+	CHECK_EQ(nop.calls, 1);
+	CHECK_EQ(reader.calls, 0);
+	CHECK(reader.op.pending);
+
+	tick_init(&tick, tick_fire, 1);
+	deadline = poor_loop_now() + 2'000'000;
+	poor_loop_timer_arm(&loop, &tick.timer, deadline);
+	CHECK_EQ(poor_loop_run_once(&loop), 0);
+	CHECK_EQ(tick.fired, 1);
+	CHECK(tick.at >= deadline);
+	CHECK_EQ(reader.calls, 0);
+
+	CHECK_EQ(write(fds[1], "x", 1), 1);
+	CHECK_EQ(poor_loop_run_once(&loop), 0);
+	CHECK_EQ(reader.calls, 1);
+	CHECK_EQ(reader.res, 1);
+	CHECK(!reader.op.pending);
+	poor_loop_exit(&loop);
+	close_pipe(&fds);
+	return 0;
+}
+
+static int test_run_once_eintr(void)
+{
+	struct sigaction sa = { .sa_handler = on_alarm }, old;
+	struct poor_loop loop;
+	char buf[1];
+	struct rec rec;
+	int fds[2];
+
+	make_pipe(&fds);
+	alarms = 0;
+	CHECK_EQ(sigemptyset(&sa.sa_mask), 0);
+	CHECK_EQ(sigaction(SIGALRM, &sa, &old), 0);
+	loop_init(&loop, 8);
+	rec_init(&rec, rec_complete);
+	arm_read(&loop, &rec.op, fds[0], buf);
+	set_alarm(20000);
+	CHECK_EQ(poor_loop_run_once(&loop), 0);
+	set_alarm(0);
+	CHECK(alarms >= 1);
+	CHECK_EQ(rec.calls, 0);
+	CHECK(rec.op.pending);
+
+	CHECK_EQ(write(fds[1], "x", 1), 1);
+	drain(&loop, &rec.op);
+	CHECK_EQ(rec.res, 1);
+	poor_loop_exit(&loop);
+	CHECK_EQ(sigaction(SIGALRM, &old, nullptr), 0);
+	close_pipe(&fds);
+	return 0;
+}
+
 static int test_exit_pending(void)
 {
 	struct poor_loop loop;
@@ -294,6 +368,8 @@ static const struct test tests[] = {
 	TEST(submit_retry),
 	TEST(stop),
 	TEST(eintr),
+	TEST(run_once),
+	TEST(run_once_eintr),
 	TEST(exit_pending),
 };
 

@@ -12,12 +12,7 @@ int poor_loop_init(struct poor_loop *loop, unsigned entries, struct io_uring_par
 	return io_uring_queue_init_params(entries, &loop->ring, params);
 }
 
-void poor_loop_exit(struct poor_loop *loop)
-{
-	io_uring_queue_exit(&loop->ring);
-}
-
-static int step(struct poor_loop *loop)
+int poor_loop_run_once(struct poor_loop *loop)
 {
 	struct __kernel_timespec ts;
 	struct io_uring_cqe *cqe;
@@ -34,19 +29,4 @@ static int step(struct poor_loop *loop)
 	if (ret == -EINTR || ret == -EBUSY || ret == -ETIME)
 		return 0;
 	return ret < 0 ? ret : 0;
-}
-
-int poor_loop_run(struct poor_loop *loop)
-{
-	int ret = 0;
-
-	while (!loop->stop && !ret)
-		ret = step(loop);
-	loop->stop = false;
-	return ret;
-}
-
-void poor_loop_stop(struct poor_loop *loop)
-{
-	loop->stop = true;
 }

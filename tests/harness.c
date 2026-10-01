@@ -90,13 +90,8 @@ void _arm_read(struct poor_loop *loop, struct poor_loop_op *op, int fd, size_t l
 	io_uring_prep_read_array(get_sqe(loop, op), fd, buf, 0);
 }
 
-static size_t awaited_count;
-static struct poor_loop_op *(*awaited)[];
-
-static bool settled(void)
+static bool settled(size_t count, struct poor_loop_op *(*ops)[count])
 {
-	struct poor_loop_op *(*ops)[awaited_count] = awaited;
-
 	foreach_array_ref(ops, op)
 		if ((*op)->pending)
 			return false;
@@ -105,14 +100,11 @@ static bool settled(void)
 
 void drain_ops(struct poor_loop *loop, size_t count, struct poor_loop_op *(*ops)[count])
 {
-	awaited = ops;
-	awaited_count = count;
-	if (!settled())
-		CHECK_EQ(poor_loop_run(loop), 0);
-	awaited_count = 0;
+	while (!settled(count, ops))
+		CHECK_EQ(poor_loop_run_once(loop), 0);
 }
 
-void rec_complete(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
+void rec_complete(struct poor_loop *, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
 {
 	struct rec *rec = container_of(op, struct rec, op);
 
@@ -123,8 +115,6 @@ void rec_complete(struct poor_loop *loop, struct poor_loop_op *op, const struct 
 		rec->more++;
 	rec->res = cqe->res;
 	rec->flags = cqe->flags;
-	if (awaited_count && settled())
-		poor_loop_stop(loop);
 }
 
 void rec_init(struct rec *rec, poor_loop_complete_fn *complete)

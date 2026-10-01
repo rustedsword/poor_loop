@@ -44,12 +44,12 @@ static void nothing(struct poor_loop *, struct poor_loop_timer *)
 {
 }
 
-static void run(struct poor_loop *loop)
+static void run_once(struct poor_loop *loop)
 {
-	int ret = poor_loop_run(loop);
+	int ret = poor_loop_run_once(loop);
 
 	if (ret) {
-		printerrln("poor_loop_run: ", strerror(-ret));
+		printerrln("poor_loop_run_once: ", strerror(-ret));
 		exit(1);
 	}
 }
@@ -95,10 +95,9 @@ struct probe {
 	uint64_t fired;
 };
 
-static void probe_fire(struct poor_loop *loop, struct poor_loop_timer *timer)
+static void probe_fire(struct poor_loop *, struct poor_loop_timer *timer)
 {
 	container_of(timer, struct probe, timer)->fired = poor_loop_now();
-	poor_loop_stop(loop);
 }
 
 static void bench_loop_timer(struct poor_loop *loop, uint64_t delay, unsigned count, int64_t (*errors)[count])
@@ -108,7 +107,8 @@ static void bench_loop_timer(struct poor_loop *loop, uint64_t delay, unsigned co
 		uint64_t deadline = poor_loop_now() + delay;
 
 		poor_loop_timer_arm(loop, &probe.timer, deadline);
-		run(loop);
+		while (poor_loop_timer_armed(&probe.timer))
+			run_once(loop);
 		*error = (int64_t)(probe.fired - deadline);
 	}
 }
@@ -170,13 +170,12 @@ struct ordered {
 
 static unsigned fired, order;
 
-static void note_order(struct poor_loop *loop, struct poor_loop_timer *timer)
+static void note_order(struct poor_loop *, struct poor_loop_timer *timer)
 {
 	struct ordered *ordered = container_of(timer, struct ordered, timer);
 
 	order = order * 10 + ordered->id;
-	if (++fired == 3)
-		poor_loop_stop(loop);
+	fired++;
 }
 
 static bool check_order(struct poor_loop *loop)
@@ -197,7 +196,8 @@ static bool check_order(struct poor_loop *loop)
 	foreach_array_index(timers, i)
 		poor_loop_timer_arm(loop, &timers[i].timer, deadlines[i]);
 	poor_loop_timer_arm(loop, &timers[1].timer, base + 5 * NS_PER_MS);
-	run(loop);
+	while (fired < ARRAY_SIZE(timers))
+		run_once(loop);
 	println("deadline order: fired ", order, order == 123 ? " (ok)" : " (WRONG)");
 	return order == 123;
 }

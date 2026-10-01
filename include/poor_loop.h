@@ -38,33 +38,60 @@ static inline struct io_uring *poor_loop_ring(struct poor_loop *loop)
 [[nodiscard]] int poor_loop_init(struct poor_loop *loop, unsigned entries, struct io_uring_params *params);
 
 /*
- * Tear down the event loop and close the io_uring ring.
- *
- * Disarm all timers and make sure no op is pending first: cancel requests that
- * won't finish on their own and run the loop until they complete. The kernel
- * cancels whatever is left only after the ring is closed, without calling
- * complete(): a running request may still use its buffers after this returns,
- * and a queued close may leave its fd open.
+ * Close the io_uring ring without submitting cancellations or running callbacks.
  */
-void poor_loop_exit(struct poor_loop *loop);
+static inline void poor_loop_exit(struct poor_loop *loop)
+{
+	io_uring_queue_exit(&loop->ring);
+}
+
+/*
+ * Run one iteration of the event loop, regardless of the stop flag.
+ *
+ * Callers driving their own loop can check poor_loop_stopped() between
+ * iterations or use their own termination condition. This function does not
+ * clear the flag.
+ *
+ * Callbacks must not call poor_loop_run(), poor_loop_run_once() or
+ * poor_loop_exit(). CQEs with zero user_data are ignored.
+ *
+ * Returns 0, or -errno if waiting failed.
+ */
+[[nodiscard]] int poor_loop_run_once(struct poor_loop *loop);
+
+/* Make poor_loop_run() return after the current iteration. */
+static inline void poor_loop_stop(struct poor_loop *loop)
+{
+	loop->stop = true;
+}
+
+/* Return whether a stop has been requested. */
+static inline bool poor_loop_stopped(const struct poor_loop *loop)
+{
+	return loop->stop;
+}
+
+/* Clear the stop flag so poor_loop_run() can run again. */
+static inline void poor_loop_clear_stop(struct poor_loop *loop)
+{
+	loop->stop = false;
+}
 
 /*
  * Run the event loop until poor_loop_stop() is called.
  *
- * Callbacks must not call poor_loop_run() or poor_loop_exit(). CQEs with zero
- * user_data are ignored.
+ * The stop flag stays set on return; call poor_loop_clear_stop() to run again.
  *
  * Returns 0 on normal exit, or -errno if waiting failed.
  */
-[[nodiscard]] int poor_loop_run(struct poor_loop *loop);
+[[nodiscard]] static inline int poor_loop_run(struct poor_loop *loop)
+{
+	int ret = 0;
 
-/*
- * Stop the event loop.
- *
- * If called from a callback, poor_loop_run() will exit after the current
- * iteration finishes.
- */
-void poor_loop_stop(struct poor_loop *loop);
+	while (!poor_loop_stopped(loop) && !ret)
+		ret = poor_loop_run_once(loop);
+	return ret;
+}
 
 #ifdef __cplusplus
 }
