@@ -23,7 +23,6 @@ static void on_io(struct poor_loop *loop, struct poor_loop_op *op, const struct 
 	}
 	if (written < len) {
 		auto unsent = arrview_cfront(written, arrview_first(len, buf));
-
 		io_uring_prep_write_array(poor_loop_get_sqe(loop, op), STDOUT_FILENO, unsent, -1);
 	} else {
 		io_uring_prep_read_array(poor_loop_get_sqe(loop, op), STDIN_FILENO, buf, -1);
