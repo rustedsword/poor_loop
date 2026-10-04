@@ -29,8 +29,6 @@ static int test_op_init(void)
 	poor_loop_op_init(&op, rec_complete);
 	CHECK(op.complete == rec_complete);
 	CHECK(!op.pending);
-	foreach_array_ref(op.data, byte)
-		CHECK_EQ(*byte, 0);
 	return 0;
 }
 

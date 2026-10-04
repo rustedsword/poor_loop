@@ -32,13 +32,12 @@ struct poor_loop_timer {
 
 poor_list_define(poor_loop_timer_list, struct poor_loop_timer, link);
 
-#define POOR_LOOP_TIMER_INIT(fn) { .link = {}, .deadline = 0, .fire = (fn) }
+#define POOR_LOOP_TIMER_INIT(fn) { .fire = (fn) }
 
 static inline void poor_loop_timer_init(struct poor_loop_timer *timer, poor_loop_timer_fn *fire)
 {
-	struct poor_loop_timer init = POOR_LOOP_TIMER_INIT(fire);
-
-	*timer = init;
+	timer->link.next = nullptr;
+	timer->fire = fire;
 }
 
 static inline bool poor_loop_timer_armed(const struct poor_loop_timer *timer)

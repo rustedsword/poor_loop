@@ -28,13 +28,12 @@ struct poor_loop_op {
 	char data[7];
 };
 
-#define POOR_LOOP_OP_INIT(fn) { .complete = (fn), .pending = false, .data = {} }
+#define POOR_LOOP_OP_INIT(fn) { .complete = (fn) }
 
 static inline void poor_loop_op_init(struct poor_loop_op *op, poor_loop_complete_fn *complete)
 {
-	struct poor_loop_op init = POOR_LOOP_OP_INIT(complete);
-
-	*op = init;
+	op->complete = complete;
+	op->pending = false;
 }
 
 /*

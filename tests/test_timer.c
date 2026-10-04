@@ -17,7 +17,6 @@ static int test_timer_init(void)
 	poor_loop_timer_init(&timer, tick_fire);
 	CHECK(timer.fire == tick_fire);
 	CHECK(!poor_loop_timer_armed(&timer));
-	CHECK_EQ(timer.deadline, 0);
 	return 0;
 }
 
