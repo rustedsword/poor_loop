@@ -34,6 +34,7 @@ meson.override_dependency('poor_loop', poor_loop_dep)
 
 install_headers(
   'include/poor_loop.h',
+  'include/poor_loop_group.h',
   'include/poor_loop_log.h',
   'include/poor_loop_op.h',
   'include/poor_loop_timer.h',
@@ -54,5 +55,6 @@ endif
 
 if get_option('examples')
   subdir('examples/cat')
+  subdir('examples/group')
   subdir('examples/nanochat')
 endif
