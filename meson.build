@@ -55,6 +55,7 @@ endif
 
 if get_option('examples')
   subdir('examples/cat')
+  subdir('examples/read_a_file_in_a_single_chain')
   subdir('examples/group')
   subdir('examples/nanochat')
 endif
