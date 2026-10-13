@@ -12,5 +12,6 @@
 [[gnu::visibility("hidden")]] void poor_loop_ops_dispatch(struct poor_loop *loop);
 [[gnu::visibility("hidden")]] bool poor_loop_timers_timeout(struct poor_loop *loop, struct __kernel_timespec *ts);
 [[gnu::visibility("hidden")]] void poor_loop_timers_expire(struct poor_loop *loop);
+[[gnu::visibility("hidden")]] void poor_loop_calls_run(struct poor_loop *loop);
 
 #endif

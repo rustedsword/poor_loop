@@ -4,6 +4,7 @@
 
 #include <liburing.h>
 
+#include "poor_loop_call.h"
 #include "poor_loop_log.h"
 #include "poor_loop_op.h"
 #include "poor_loop_timer.h"
@@ -16,6 +17,7 @@ extern "C" {
 struct poor_loop {
 	struct io_uring ring;
 	poor_loop_timer_list timers;
+	struct poor_loop_call *calls;
 	bool stop;
 };
 

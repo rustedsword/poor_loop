@@ -1,9 +1,9 @@
 # poor_loop
 
-Minimal event loop on top of liburing: completion callbacks plus software
-timers. It does not hide the ring. Requests are prepared with plain liburing
-helpers, and `poor_loop_ring()` exposes the ring for anything else, such as
-registered files and buffers.
+Minimal event loop on top of liburing: completion callbacks, software timers
+and deferred calls. It does not hide the ring. Requests are prepared with
+plain liburing helpers, and `poor_loop_ring()` exposes the ring for anything
+else, such as registered files and buffers.
 
 ## Build
 
