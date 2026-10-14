@@ -1,3 +1,5 @@
+# Port of liburing's src/Makefile and the compat.h part of its configure, since upstream has no
+# Meson build. On a submodule bump, sync new sources here and compat changes to include/liburing.
 project(
   'liburing',
   'c',
