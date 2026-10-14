@@ -359,6 +359,284 @@ static int test_exit_pending(void)
 	return 0;
 }
 
+static uint64_t later(void)
+{
+	return poor_loop_now() + 10'000'000'000;
+}
+
+static int test_drain_idle(void)
+{
+	struct poor_loop loop;
+
+	loop_init(&loop, 8);
+	CHECK_EQ(poor_loop_drain(&loop, later()), 0);
+	CHECK_EQ(poor_loop_drain(&loop, later()), 0);
+	CHECK(!poor_loop_stopped(&loop));
+	CHECK_EQ(io_uring_cq_ready(poor_loop_ring(&loop)), 0);
+	poor_loop_exit(&loop);
+	return 0;
+}
+
+static const char x[] = { 'x' };
+
+static struct io_uring_sqe *get_untracked_sqe(struct poor_loop *loop)
+{
+	auto sqe = poor_loop_get_untracked_sqe(loop);
+
+	CHECK(sqe);
+	return sqe;
+}
+
+static int test_drain(void)
+{
+	struct __kernel_timespec ts = { .tv_nsec = 2'000'000 };
+	struct poor_loop loop;
+	char buf[8];
+	int fds[2];
+
+	make_pipe(&fds);
+	CHECK_EQ(fcntl(fds[0], F_SETFL, O_NONBLOCK), 0);
+	loop_init(&loop, 8);
+	auto sqe = get_untracked_sqe(&loop);
+	io_uring_prep_timeout(sqe, &ts, 0, 0);
+	sqe->flags |= IOSQE_IO_HARDLINK;
+	io_uring_prep_write_array(get_untracked_sqe(&loop), fds[1], x, 0);
+	CHECK_EQ(poor_loop_drain(&loop, later()), 0);
+	CHECK_EQ(read(fds[0], buf, sizeof(buf)), 1);
+	CHECK_EQ(buf[0], 'x');
+	CHECK_EQ(io_uring_cq_ready(poor_loop_ring(&loop)), 0);
+	poor_loop_exit(&loop);
+	close_pipe(&fds);
+	return 0;
+}
+
+struct closer {
+	struct rec reader, cancel;
+	int fd;
+};
+
+static void closer_read(struct poor_loop *loop, struct poor_loop_op *op, const struct io_uring_cqe *cqe)
+{
+	auto sqe = get_untracked_sqe(loop);
+
+	rec_complete(loop, op, cqe);
+	io_uring_prep_close(sqe, container_of(op, struct closer, reader.op)->fd);
+	sqe->flags |= IOSQE_ASYNC;
+}
+
+static int test_drain_close(void)
+{
+	struct closer closer;
+	struct poor_loop loop;
+	char buf[8];
+	int fds[2];
+
+	make_pipe(&fds);
+	loop_init(&loop, 8);
+	rec_init(&closer.reader, closer_read);
+	rec_init(&closer.cancel, rec_complete);
+	closer.fd = fcntl(fds[0], F_DUPFD_CLOEXEC, 0);
+	CHECK(closer.fd >= 0);
+	arm_read(&loop, &closer.reader.op, closer.fd, buf);
+	submit(&loop, 1);
+	io_uring_prep_cancel(get_sqe(&loop, &closer.cancel.op), &closer.reader.op, 0);
+	drain(&loop, &closer.reader.op, &closer.cancel.op);
+	CHECK_EQ(closer.reader.res, -ECANCELED);
+	CHECK_EQ(closer.cancel.res, 0);
+	CHECK_EQ(poor_loop_drain(&loop, later()), 0);
+	CHECK_EQ(fcntl(closer.fd, F_GETFD), -1);
+	CHECK_EQ(errno, EBADF);
+	poor_loop_exit(&loop);
+	close_pipe(&fds);
+	return 0;
+}
+
+static int test_drain_op(void)
+{
+	struct poor_loop loop;
+	struct rec rec;
+	char buf[8];
+	int fds[2];
+
+	make_pipe(&fds);
+	loop_init(&loop, 8);
+	rec_init(&rec, rec_complete);
+	io_uring_prep_read_array(get_untracked_sqe(&loop), fds[0], buf, 0);
+	arm_nop(&loop, &rec.op);
+	CHECK_EQ(poor_loop_drain(&loop, later()), -EBUSY);
+	CHECK_EQ(rec.calls, 0);
+	CHECK(rec.op.pending);
+	poor_loop_exit(&loop);
+	close_pipe(&fds);
+	return 0;
+}
+
+static int test_drain_timer(void)
+{
+	struct poor_loop loop;
+	struct tick tick;
+
+	loop_init(&loop, 8);
+	tick_init(&tick, tick_fire, 1);
+	poor_loop_timer_arm(&loop, &tick.timer, later());
+	CHECK_EQ(poor_loop_drain(&loop, later()), -EBUSY);
+	CHECK(poor_loop_timer_armed(&tick.timer));
+	CHECK_EQ(io_uring_sq_ready(poor_loop_ring(&loop)), 0);
+	poor_loop_timer_disarm(&tick.timer);
+	poor_loop_exit(&loop);
+	return 0;
+}
+
+static int test_drain_link(void)
+{
+	struct poor_loop loop;
+	char buf[8];
+	int fds[2];
+
+	make_pipe(&fds);
+	loop_init(&loop, 8);
+	io_uring_prep_read_array(get_untracked_sqe(&loop), fds[0], buf, 0);
+	submit(&loop, 1);
+	auto sqe = get_untracked_sqe(&loop);
+	io_uring_prep_write_array(sqe, fds[1], x, 0);
+	sqe->flags |= IOSQE_IO_LINK;
+	CHECK_EQ(poor_loop_drain(&loop, later()), 0);
+
+	sqe = get_untracked_sqe(&loop);
+	io_uring_prep_write_array(sqe, -1, x, 0);
+	sqe->flags |= IOSQE_IO_LINK;
+	CHECK_EQ(poor_loop_drain(&loop, later()), 0);
+	CHECK_EQ(io_uring_cq_ready(poor_loop_ring(&loop)), 0);
+	poor_loop_exit(&loop);
+	close_pipe(&fds);
+	return 0;
+}
+
+static int test_drain_sq_full(void)
+{
+	struct poor_loop loop;
+
+	loop_init(&loop, 1);
+	io_uring_prep_nop(get_untracked_sqe(&loop));
+	CHECK_EQ(io_uring_sq_space_left(poor_loop_ring(&loop)), 0);
+	CHECK_EQ(poor_loop_drain(&loop, later()), 0);
+	CHECK_EQ(io_uring_cq_ready(poor_loop_ring(&loop)), 0);
+	poor_loop_exit(&loop);
+	return 0;
+}
+
+static int test_drain_skip_success(void)
+{
+	struct io_uring_params p;
+	struct poor_loop loop;
+	int ret = 0;
+
+	setup_params(&p);
+	CHECK_EQ(poor_loop_init(&loop, 8, &p), 0);
+	if (p.features & IORING_FEAT_CQE_SKIP) {
+		auto sqe = get_untracked_sqe(&loop);
+		io_uring_prep_nop(sqe);
+		sqe->flags |= IOSQE_CQE_SKIP_SUCCESS;
+		CHECK_EQ(poor_loop_drain(&loop, later()), -EOPNOTSUPP);
+	} else {
+		ret = SKIP;
+	}
+	poor_loop_exit(&loop);
+	return ret;
+}
+
+static int test_drain_no_ext_arg(void)
+{
+	struct poor_loop loop;
+
+	loop_init(&loop, 8);
+	poor_loop_ring(&loop)->features &= ~IORING_FEAT_EXT_ARG;
+	CHECK_EQ(poor_loop_drain(&loop, later()), -EOPNOTSUPP);
+	CHECK_EQ(io_uring_sq_ready(poor_loop_ring(&loop)), 0);
+	poor_loop_exit(&loop);
+	return 0;
+}
+
+static int test_drain_error(void)
+{
+	struct io_uring_params p;
+	struct poor_loop loop;
+
+	setup_params(&p);
+	p.flags |= IORING_SETUP_R_DISABLED;
+	CHECK_EQ(poor_loop_init(&loop, 8, &p), 0);
+	CHECK_EQ(poor_loop_drain(&loop, later()), -EBADFD);
+	poor_loop_exit(&loop);
+	return 0;
+}
+
+static int test_drain_eintr(void)
+{
+	struct sigaction sa = { .sa_handler = on_alarm }, old;
+	struct poor_loop loop;
+	char buf[8];
+	int fds[2];
+
+	make_pipe(&fds);
+	alarms = 0;
+	CHECK_EQ(sigemptyset(&sa.sa_mask), 0);
+	CHECK_EQ(sigaction(SIGALRM, &sa, &old), 0);
+	loop_init(&loop, 8);
+	io_uring_prep_read_array(get_untracked_sqe(&loop), fds[0], buf, 0);
+	set_alarm(20000);
+	CHECK_EQ(poor_loop_drain(&loop, later()), -EINTR);
+	set_alarm(0);
+	CHECK(alarms >= 1);
+
+	CHECK_EQ(write(fds[1], "x", 1), 1);
+	CHECK_EQ(poor_loop_drain(&loop, later()), 0);
+	poor_loop_exit(&loop);
+	CHECK_EQ(sigaction(SIGALRM, &old, nullptr), 0);
+	close_pipe(&fds);
+	return 0;
+}
+
+static int test_drain_past_deadline(void)
+{
+	struct poor_loop loop;
+	char buf[8];
+	int fds[2];
+
+	make_pipe(&fds);
+	loop_init(&loop, 8);
+	io_uring_prep_read_array(get_untracked_sqe(&loop), fds[0], buf, 0);
+	CHECK_EQ(poor_loop_drain(&loop, 0), -ETIME);
+	if (!(mode->flags & IORING_SETUP_SQPOLL))
+		CHECK_EQ(io_uring_sq_ready(poor_loop_ring(&loop)), 0);
+
+	CHECK_EQ(write(fds[1], "x", 1), 1);
+	CHECK_EQ(poor_loop_drain(&loop, later()), 0);
+	poor_loop_exit(&loop);
+	close_pipe(&fds);
+	return 0;
+}
+
+static int test_drain_deadline(void)
+{
+	struct poor_loop loop;
+	uint64_t deadline;
+	char buf[8];
+	int fds[2];
+
+	make_pipe(&fds);
+	loop_init(&loop, 8);
+	io_uring_prep_read_array(get_untracked_sqe(&loop), fds[0], buf, 0);
+	deadline = poor_loop_now() + 5'000'000;
+	CHECK_EQ(poor_loop_drain(&loop, deadline), -ETIME);
+	CHECK(poor_loop_now() >= deadline);
+
+	CHECK_EQ(write(fds[1], "x", 1), 1);
+	CHECK_EQ(poor_loop_drain(&loop, later()), 0);
+	poor_loop_exit(&loop);
+	close_pipe(&fds);
+	return 0;
+}
+
 static const struct test tests[] = {
 	TEST(init_exit),
 	TEST(init_params),
@@ -371,6 +649,19 @@ static const struct test tests[] = {
 	TEST(run_once),
 	TEST(run_once_eintr),
 	TEST(exit_pending),
+	TEST(drain_idle),
+	TEST(drain),
+	TEST(drain_close),
+	TEST(drain_op),
+	TEST(drain_timer),
+	TEST(drain_link),
+	TEST(drain_sq_full),
+	TEST(drain_skip_success),
+	TEST(drain_no_ext_arg),
+	TEST(drain_error),
+	TEST(drain_eintr),
+	TEST(drain_past_deadline),
+	TEST(drain_deadline),
 };
 
 int main(int argc, char **argv)
