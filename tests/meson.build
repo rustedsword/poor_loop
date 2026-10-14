@@ -35,9 +35,16 @@ compile_cmd = meson.get_compiler('c').cmd_array() + [
   '-std=c23', '-fsyntax-only', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
   '-I' + meson.project_source_root() / 'include',
 ]
-liburing_inc = liburing.get_variable(pkgconfig: 'includedir', default_value: '')
-if liburing_inc not in ['', '/usr/include']
-  compile_cmd += ['-isystem', liburing_inc]
+if liburing.type_name() == 'internal'
+  compile_cmd += [
+    '-isystem', meson.project_source_root() / 'subprojects' / 'liburing' / 'liburing' / 'src' / 'include',
+    '-isystem', meson.project_build_root() / 'subprojects' / 'liburing' / 'include',
+  ]
+else
+  liburing_inc = liburing.get_variable(pkgconfig: 'includedir', default_value: '')
+  if liburing_inc not in ['', '/usr/include']
+    compile_cmd += ['-isystem', liburing_inc]
+  endif
 endif
 poor_base_inc = poor_base.get_variable(
   pkgconfig: 'includedir',
