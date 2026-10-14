@@ -46,8 +46,8 @@ install_headers(
 import('pkgconfig').generate(
   poor_loop,
   description: 'Minimal io_uring event loop',
-  # A string, since Meson leaves a header-only fallback dependency out
-  requires: [liburing, 'poor_base'],
+  # Strings, so fallback dependencies are listed too
+  requires: ['liburing >=2.3', 'poor_base'],
 )
 
 if get_option('tests')

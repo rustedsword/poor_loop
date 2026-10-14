@@ -1,6 +1,3 @@
-[submodule "refs/liburing"]
-	path = refs/liburing
-	url = https://github.com/axboe/liburing.git
 [submodule "refs/iouringinfo"]
 	path = refs/iouringinfo
 	url = https://gitlab.freedesktop.org/lightofmysoul/iouringinfo.git
@@ -13,3 +10,6 @@
 [submodule "subprojects/poor_base"]
 	path = subprojects/poor_base
 	url = https://github.com/rustedsword/poor_base.git
+[submodule "subprojects/liburing/liburing"]
+	path = subprojects/liburing/liburing
+	url = https://github.com/axboe/liburing.git
