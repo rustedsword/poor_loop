@@ -6,6 +6,14 @@
 
 #include "poor_loop.h"
 
+#if defined(__SANITIZE_THREAD__)
+#define POOR_LOOP_TSAN 1
+#elif defined(__has_feature)
+#if __has_feature(thread_sanitizer)
+#define POOR_LOOP_TSAN 1
+#endif
+#endif
+
 #define poor_loop_log(loop, ...) poor_loop_logf(loop, printf_specifier_string(0, __VA_ARGS__), printf_args_pre_process(__VA_ARGS__))
 
 [[gnu::visibility("hidden"), gnu::format(printf, 2, 3)]] void poor_loop_logf(struct poor_loop *loop, const char *fmt, ...);
