@@ -71,6 +71,29 @@ static int test_log_sq_space(void)
 	return 0;
 }
 
+static int test_log_drain(void)
+{
+	struct poor_loop loop;
+	char expected[128];
+	struct rec rec;
+
+	logs = 0;
+	poor_loop_log_function_set(log_record);
+	loop_init(&loop, 8);
+	rec_init(&rec, rec_complete);
+	arm_nop(&loop, &rec.op);
+	CHECK_EQ(poor_loop_drain(&loop, poor_loop_now() + 10'000'000'000), -EBUSY);
+	CHECK_EQ(rec.calls, 0);
+	CHECK(rec.op.pending);
+	CHECK_EQ(logs, 1);
+	CHECK(logged_loop == &loop);
+	snprintf_array(expected, "drain: unexpected CQE for op %p, res 0", (void *)&rec.op);
+	CHECK(!strcmp(logged, expected));
+	poor_loop_log_function_set(nullptr);
+	poor_loop_exit(&loop);
+	return 0;
+}
+
 static void *other_thread(void *)
 {
 	poor_loop_log_function_set(log_other);
@@ -98,6 +121,7 @@ static int test_log_thread(void)
 
 static const struct test tests[] = {
 	TEST(log_sq_space),
+	TEST(log_drain),
 	TEST(log_thread),
 };
 

@@ -58,4 +58,5 @@ if get_option('examples')
   subdir('examples/read_a_file_in_a_single_chain')
   subdir('examples/group')
   subdir('examples/nanochat')
+  subdir('examples/drain')
 endif
