@@ -8,6 +8,11 @@
 #include "internal.h"
 #include "poor_loop_fd.h"
 
+#ifdef POOR_LOOP_TSAN
+/* From linux_syscall_hooks.h, which GCC doesn't install */
+void __sanitizer_syscall_pre_impl_close(long fd);
+#endif
+
 void poor_loop_close_fd_or_submit(struct poor_loop *loop, int fd, unsigned sqe_flags)
 {
 	struct io_uring_sqe *sqe = poor_loop_get_untracked_sqe_or_submit(loop);
@@ -17,6 +22,10 @@ void poor_loop_close_fd_or_submit(struct poor_loop *loop, int fd, unsigned sqe_f
 		close(fd);
 		return;
 	}
+#ifdef POOR_LOOP_TSAN
+	/* TSan doesn't see closes in the ring and reports races when another thread gets the same fd */
+	__sanitizer_syscall_pre_impl_close(fd);
+#endif
 	io_uring_prep_close(sqe, fd);
 	io_uring_sqe_set_flags(sqe, sqe_flags);
 }

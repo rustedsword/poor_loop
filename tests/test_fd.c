@@ -2,6 +2,10 @@
 #define _GNU_SOURCE
 
 #include <poor_loop_fd.h>
+#include <pthread.h>
+#include <sched.h>
+#include <stdatomic.h>
+#include <sys/eventfd.h>
 
 #include "harness.h"
 
@@ -242,6 +246,43 @@ static int test_fd_free_in_done(void)
 	return 0;
 }
 
+/* A relaxed flag gives TSan no happens-before, like threads that only talk through rings */
+static atomic_bool fd_closed;
+
+static void *reopen(void *)
+{
+	int fd;
+
+	while (!atomic_load_explicit(&fd_closed, memory_order_relaxed))
+		sched_yield();
+	fd = eventfd(0, EFD_CLOEXEC);
+	CHECK(fd >= 0);
+	CHECK_EQ(close(fd), 0);
+	return (void *)(intptr_t)fd;
+}
+
+/* Another thread gets the number of the fd closed in the ring */
+static int test_fd_close_reuse(void)
+{
+	struct poor_loop loop;
+	pthread_t thread;
+	void *reused;
+	int fd;
+
+	atomic_store_explicit(&fd_closed, false, memory_order_relaxed);
+	CHECK_EQ(pthread_create(&thread, nullptr, reopen, nullptr), 0);
+	loop_init(&loop, 8);
+	fd = eventfd(0, EFD_CLOEXEC);
+	CHECK(fd >= 0);
+	poor_loop_close_fd_or_submit(&loop, fd, 0);
+	wait_closed(&loop, fd);
+	atomic_store_explicit(&fd_closed, true, memory_order_relaxed);
+	CHECK_EQ(pthread_join(thread, &reused), 0);
+	CHECK_EQ((intptr_t)reused, fd);
+	poor_loop_exit(&loop);
+	return 0;
+}
+
 static const struct test tests[] = {
 	TEST(fd_init),
 	TEST(fd_close_flags),
@@ -249,6 +290,7 @@ static const struct test tests[] = {
 	TEST(fd_release_sq_full),
 	TEST(fd_sync_close),
 	TEST(fd_free_in_done),
+	TEST(fd_close_reuse),
 };
 
 int main(int argc, char **argv)
