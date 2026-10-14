@@ -8,7 +8,7 @@ harness = static_library(
 
 extra_sources = {'group': files('shared_group.c')}
 
-foreach component : ['group', 'log', 'loop', 'op', 'timer', 'uring_array']
+foreach component : ['fd', 'group', 'log', 'loop', 'op', 'timer', 'uring_array']
   source = 'test_' + component + '.c'
   exe = executable(
     'test_' + component,
