@@ -8,6 +8,7 @@
 #include "poor_loop_log.h"
 #include "poor_loop_op.h"
 #include "poor_loop_timer.h"
+#include "poor_loop_tsan.h"
 #include "poor_loop_uring_array.h"
 
 #ifdef __cplusplus
@@ -30,6 +31,8 @@ static inline struct io_uring *poor_loop_ring(struct poor_loop *loop)
 	return &loop->ring;
 }
 
+[[nodiscard]] int poor_loop_init_impl(struct poor_loop *loop, unsigned entries, struct io_uring_params *params);
+
 /*
  * Initialize the event loop.
  *
@@ -37,7 +40,14 @@ static inline struct io_uring *poor_loop_ring(struct poor_loop *loop)
  * ring sizes back into it. IORING_SETUP_SQ_REWIND is not supported yet.
  * Returns 0 on success, or -errno on error.
  */
-[[nodiscard]] int poor_loop_init(struct poor_loop *loop, unsigned entries, struct io_uring_params *params);
+[[nodiscard]] static inline int poor_loop_init(struct poor_loop *loop, unsigned entries, struct io_uring_params *params)
+{
+	int ret = poor_loop_init_impl(loop, entries, params);
+
+	if (!ret)
+		poor_loop_tsan_ring_acquire(&loop->ring);
+	return ret;
+}
 
 /*
  * Close the io_uring ring without submitting cancellations or running callbacks.
@@ -46,6 +56,7 @@ static inline struct io_uring *poor_loop_ring(struct poor_loop *loop)
  */
 static inline void poor_loop_exit(struct poor_loop *loop)
 {
+	poor_loop_tsan_ring_release(&loop->ring);
 	io_uring_queue_exit(&loop->ring);
 }
 
