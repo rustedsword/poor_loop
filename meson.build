@@ -62,4 +62,5 @@ if get_option('examples')
   subdir('examples/group')
   subdir('examples/nanochat')
   subdir('examples/drain')
+  subdir('examples/polling_timerfd')
 endif
