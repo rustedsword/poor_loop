@@ -14,6 +14,7 @@ inc = include_directories('include')
 
 poor_loop = library(
   'poor_loop',
+  'src/fd.c',
   'src/log.c',
   'src/loop.c',
   'src/op.c',
@@ -34,6 +35,7 @@ meson.override_dependency('poor_loop', poor_loop_dep)
 
 install_headers(
   'include/poor_loop.h',
+  'include/poor_loop_fd.h',
   'include/poor_loop_group.h',
   'include/poor_loop_log.h',
   'include/poor_loop_op.h',
@@ -56,6 +58,7 @@ endif
 if get_option('examples')
   subdir('examples/cat')
   subdir('examples/read_a_file_in_a_single_chain')
+  subdir('examples/read_a_file_periodically')
   subdir('examples/group')
   subdir('examples/nanochat')
   subdir('examples/drain')
