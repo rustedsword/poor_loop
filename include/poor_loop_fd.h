@@ -80,7 +80,7 @@ void poor_loop_close_fd_or_submit_impl(struct poor_loop *loop, int fd, unsigned 
  */
 static inline void poor_loop_close_fd_or_submit(struct poor_loop *loop, int fd, unsigned sqe_flags)
 {
-	h_tsan_close(fd);
+	poor_loop_tsan_close(fd);
 	poor_loop_close_fd_or_submit_impl(loop, fd, sqe_flags);
 }
 

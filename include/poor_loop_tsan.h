@@ -31,11 +31,11 @@ void __sanitizer_syscall_pre_impl_close(long fd);
 #endif
 
 /* TSan doesn't see closes in the ring and reports races when another thread gets the same fd */
-#define h_tsan_close(fd) __sanitizer_syscall_pre_impl_close(fd)
+#define poor_loop_tsan_close(fd) __sanitizer_syscall_pre_impl_close(fd)
 
 #else
 
-#define h_tsan_close(fd) ((void)0)
+#define poor_loop_tsan_close(fd) ((void)0)
 
 #endif
 
