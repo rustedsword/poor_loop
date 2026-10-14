@@ -3,6 +3,7 @@
 #define POOR_LOOP_FD_H
 
 #include "poor_loop_group.h"
+#include "poor_loop_tsan.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -71,11 +72,17 @@ extern "C" {
  */
 #define POOR_LOOP_FD_DONE(name, loop_arg, file_arg) h_fd_define_done(name, loop_arg, file_arg)
 
+void poor_loop_close_fd_or_submit_impl(struct poor_loop *loop, int fd, unsigned sqe_flags);
+
 /*
  * Close 'fd' with an untracked SQE, so the result is ignored. 'sqe_flags' are IOSQE_* flags, e.g. IOSQE_ASYNC.
  * If the SQ is full, submit and wait; if that fails, close synchronously.
  */
-void poor_loop_close_fd_or_submit(struct poor_loop *loop, int fd, unsigned sqe_flags);
+static inline void poor_loop_close_fd_or_submit(struct poor_loop *loop, int fd, unsigned sqe_flags)
+{
+	h_tsan_close(fd);
+	poor_loop_close_fd_or_submit_impl(loop, fd, sqe_flags);
+}
 
 /* Implementation details, subject to change. */
 
