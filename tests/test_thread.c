@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 #define _GNU_SOURCE
 
+#include <poor_loop_fd.h>
 #include <pthread.h>
 #include <sched.h>
 #include <stdatomic.h>
@@ -13,7 +14,133 @@
 #define IO_URING_CHECK_VERSION(major, minor) 1
 #endif
 
+constexpr unsigned ROUNDS = 100;
 constexpr unsigned TURNS = 16;
+
+poor_loop_fd_declare(pipe_end);
+
+struct peer {
+	struct poor_loop loop;
+	pipe_end in, out;
+	struct poor_loop_op read_op, write_op;
+	unsigned msg, count, open;
+	bool sender;
+};
+
+poor_loop_group_attach(pipe_end, struct peer, in, read_op, on_read);
+poor_loop_group_attach(pipe_end, struct peer, out, write_op, on_write);
+
+static struct peer *peer_of(struct poor_loop *loop)
+{
+	return container_of(loop, struct peer, loop);
+}
+
+static void start_read(struct peer *p)
+{
+	auto sqe = poor_loop_group_get_sqe(&p->loop, &p->in, &p->read_op);
+
+	CHECK(sqe);
+	io_uring_prep_read_array(sqe, p->in.fd, array_ptr(&p->msg), -1);
+}
+
+static void start_write(struct peer *p)
+{
+	auto sqe = poor_loop_group_get_sqe(&p->loop, &p->out, &p->write_op);
+
+	CHECK(sqe);
+	io_uring_prep_write_array(sqe, p->out.fd, array_ptr(&p->msg), -1);
+}
+
+/* A peer holds both ends while it talks, so they close after the last op */
+static void hang_up(struct peer *p)
+{
+	if (poor_loop_group_release(&p->in))
+		poor_loop_group_call_done(pipe_end, &p->loop, &p->in);
+	if (poor_loop_group_release(&p->out))
+		poor_loop_group_call_done(pipe_end, &p->loop, &p->out);
+}
+
+POOR_LOOP_GROUP_OP(on_read, loop, in, op, cqe)
+{
+	struct peer *p = peer_of(loop);
+
+	if (!p->sender && !cqe->res) {
+		hang_up(p);
+		return;
+	}
+	CHECK_EQ(cqe->res, sizeof(p->msg));
+	if (!p->sender) {
+		CHECK_EQ(p->msg, ++p->count);
+	} else if (p->msg == p->count && p->count < ROUNDS) {
+		p->msg = ++p->count;
+	} else {
+		CHECK_EQ(p->msg, ROUNDS);
+		hang_up(p);
+		return;
+	}
+	start_write(p);
+}
+
+POOR_LOOP_GROUP_OP(on_write, loop, out, op, cqe)
+{
+	CHECK_EQ(cqe->res, sizeof(unsigned));
+	start_read(peer_of(loop));
+}
+
+POOR_LOOP_FD_DONE(pipe_end, loop, end)
+{
+	if (!--peer_of(loop)->open)
+		poor_loop_stop(loop);
+}
+
+static void peer_init(struct peer *p, int in, int out, bool sender)
+{
+	poor_loop_fd_init(&p->in, in);
+	poor_loop_fd_init(&p->out, out);
+	poor_loop_op_init(&p->read_op, on_read);
+	poor_loop_op_init(&p->write_op, on_write);
+	p->count = 0;
+	p->open = 2;
+	p->sender = sender;
+}
+
+static void *talk(void *arg)
+{
+	struct peer *p = arg;
+
+	loop_init(&p->loop, 8);
+	poor_loop_group_acquire(&p->in);
+	poor_loop_group_acquire(&p->out);
+	if (p->sender) {
+		p->msg = ++p->count;
+		start_write(p);
+	} else {
+		start_read(p);
+	}
+	CHECK_EQ(poor_loop_run(&p->loop), 0);
+	CHECK_EQ(poor_loop_drain(&p->loop, poor_loop_now() + 10'000'000'000), 0);
+	poor_loop_exit(&p->loop);
+	return nullptr;
+}
+
+/* The sender closes its ends after the last reply, which makes the other side read EOF */
+static int test_thread_ping_pong(void)
+{
+	int request[2], reply[2];
+	struct peer ping, pong;
+	pthread_t thread;
+
+	make_pipe(&request);
+	make_pipe(&reply);
+	peer_init(&ping, reply[0], request[1], true);
+	peer_init(&pong, request[0], reply[1], false);
+	CHECK_EQ(pthread_create(&thread, nullptr, talk, &pong), 0);
+	talk(&ping);
+	CHECK_EQ(pthread_join(thread, nullptr), 0);
+	CHECK_EQ(ping.count, ROUNDS);
+	CHECK_EQ(pong.count, ROUNDS);
+	return 0;
+}
 
 /* Relaxed atomics give TSan no happens-before, like threads that only talk through rings */
 static atomic_uint turn;
@@ -129,6 +256,7 @@ static int test_thread_no_mmap_in_turn(void)
 #endif
 
 static const struct test tests[] = {
+	TEST(thread_ping_pong),
 	TEST(thread_loops_in_turn),
 	TEST(thread_no_mmap_in_turn),
 };
