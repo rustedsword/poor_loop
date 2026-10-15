@@ -5,7 +5,7 @@
 
 #include "internal.h"
 
-int poor_loop_init(struct poor_loop *loop, unsigned entries, struct io_uring_params *params)
+int poor_loop_init_impl(struct poor_loop *loop, unsigned entries, struct io_uring_params *params)
 {
 	poor_list_init(&loop->timers);
 	loop->stop = false;
