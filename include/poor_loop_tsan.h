@@ -50,6 +50,14 @@ static inline void h_tsan_sync_ring(const struct io_uring *ring, void (*sync)(vo
 	h_tsan_sync_pages(ring->cq.ring_ptr, ring->cq.ring_sz, sync);
 	h_tsan_sync_pages(ring->sq.sqes,
 			  ring->sq.ring_entries * sizeof(struct io_uring_sqe) << !!(ring->flags & IORING_SETUP_SQE128), sync);
+	/* With IORING_SETUP_NO_MMAP liburing can put the rings after the SQEs and leave ring_sz zero */
+	if (!ring->sq.ring_sz) {
+		char *end = (char *)(ring->cq.cqes + (ring->cq.ring_entries << !!(ring->flags & IORING_SETUP_CQE32)));
+
+		if (ring->sq.array)
+			end = (char *)(ring->sq.array + ring->sq.ring_entries);
+		h_tsan_sync_pages(ring->sq.ring_ptr, end - (char *)ring->sq.ring_ptr, sync);
+	}
 }
 
 #ifdef __cplusplus
