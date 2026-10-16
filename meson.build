@@ -65,4 +65,5 @@ if get_option('examples')
   subdir('examples/drain')
   subdir('examples/polling_timerfd')
   subdir('examples/ping_pong_between_threads')
+  subdir('examples/watch_a_directory')
 endif
